@@ -697,9 +697,10 @@ class SettingsWindow(BaseWindow):
         notebook.add(ai_frame, text=LANGUAGES[self.settings.language]["ai_settings_tab"])
 
         # جدول برای نمایش AI‌های موجود
-        self.ai_list = ttk.Treeview(ai_frame, columns=("Type", "Description"), show="headings")
+        self.ai_list = ttk.Treeview(ai_frame, columns=("Type", "Description", "Status"), show="headings")
         self.ai_list.heading("Type", text=LANGUAGES[self.settings.language]["ai_type"])
         self.ai_list.heading("Description", text=LANGUAGES[self.settings.language]["description"])
+        self.ai_list.heading("Status", text=LANGUAGES[self.settings.language]["status"])
         self.ai_list.pack(fill="both", expand=True, pady=5)
 
         # دکمه حذف AI
@@ -734,6 +735,71 @@ class SettingsWindow(BaseWindow):
         # دکمه افزودن AI
         ttk.Button(form_frame, text=LANGUAGES[self.settings.language]["add_ai"],
                    command=self.add_new_ai, style="Custom.TButton").pack(pady=5)
+
+        # تنظیم نوع AI برای بازیکن 1
+        player_1_ai_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["player_1_ai"], padding=10)
+        player_1_ai_frame.pack(fill="x", pady=5)
+        ttk.Label(player_1_ai_frame, text=LANGUAGES[self.settings.language]["ai_type"]).pack(anchor="w")
+        self.player_1_ai_type_var = tk.StringVar(value=self.temp_settings.player_1_ai_type)
+        self.player_1_ai_type_var.trace("w", lambda *args: self.update_temp_settings("player_1_ai_type",
+                                                                                     self.player_1_ai_type_var.get()))
+        self.player_1_ai_menu = ttk.OptionMenu(player_1_ai_frame, self.player_1_ai_type_var,
+                                               self.temp_settings.player_1_ai_type, *self.ai_types)
+        self.player_1_ai_menu.pack(fill="x", pady=5)
+        self.player_1_ai_menu["menu"].config(font=("Arial", 10))
+
+        # تنظیم نوع AI برای بازیکن 2
+        player_2_ai_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["player_2_ai"], padding=10)
+        player_2_ai_frame.pack(fill="x", pady=5)
+        ttk.Label(player_2_ai_frame, text=LANGUAGES[self.settings.language]["ai_type"]).pack(anchor="w")
+        self.player_2_ai_type_var = tk.StringVar(value=self.temp_settings.player_2_ai_type)
+        self.player_2_ai_type_var.trace("w", lambda *args: self.update_temp_settings("player_2_ai_type",
+                                                                                     self.player_2_ai_type_var.get()))
+        self.player_2_ai_menu = ttk.OptionMenu(player_2_ai_frame, self.player_2_ai_type_var,
+                                               self.temp_settings.player_2_ai_type, *self.ai_types)
+        self.player_2_ai_menu.pack(fill="x", pady=5)
+        self.player_2_ai_menu["menu"].config(font=("Arial", 10))
+
+        # تنظیم سطح توانایی برای بازیکن 1
+        ability_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ability_levels"], padding=10)
+        ability_frame.pack(fill="x", pady=5)
+
+        ttk.Label(ability_frame, text=LANGUAGES[self.settings.language]["player_1_ability"]).pack(anchor="w")
+        self.player_1_ability_var = tk.StringVar(value="medium")  # مقدار پیش‌فرض
+        self.player_1_ability_menu = ttk.OptionMenu(
+            ability_frame, self.player_1_ability_var, "medium",
+            LANGUAGES[self.settings.language]["very_weak"],
+            LANGUAGES[self.settings.language]["weak"],
+            LANGUAGES[self.settings.language]["medium"],
+            LANGUAGES[self.settings.language]["strong"],
+            LANGUAGES[self.settings.language]["very_strong"],
+            command=lambda _: self.update_ability_levels("player_1")
+        )
+        self.player_1_ability_menu.pack(fill="x", pady=5)
+        self.player_1_ability_menu["menu"].config(font=("Arial", 10))
+
+        # تنظیم سطح توانایی برای بازیکن 2
+        ttk.Label(ability_frame, text=LANGUAGES[self.settings.language]["player_2_ability"]).pack(anchor="w")
+        self.player_2_ability_var = tk.StringVar(value="medium")  # مقدار پیش‌فرض
+        self.player_2_ability_menu = ttk.OptionMenu(
+            ability_frame, self.player_2_ability_var, "medium",
+            LANGUAGES[self.settings.language]["very_weak"],
+            LANGUAGES[self.settings.language]["weak"],
+            LANGUAGES[self.settings.language]["medium"],
+            LANGUAGES[self.settings.language]["strong"],
+            LANGUAGES[self.settings.language]["very_strong"],
+            command=lambda _: self.update_ability_levels("player_2")
+        )
+        self.player_2_ability_menu.pack(fill="x", pady=5)
+        self.player_2_ability_menu["menu"].config(font=("Arial", 10))
+
+        # تنظیم زمان توقف AI
+        pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
+        pause_frame.pack(fill="x", pady=5)
+        ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
+        self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
+        self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time", self.ai_pause_var.get()))
+        ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10).pack(anchor="w", pady=5)
 
         self.update_ai_list()
 
@@ -956,7 +1022,8 @@ class SettingsWindow(BaseWindow):
     def save(self):
         """ذخیره تنظیمات در فایل کانفیگ."""
         try:
-            pause_time = self.ai_pause_var.get()
+            # بررسی وجود ai_pause_var
+            pause_time = self.ai_pause_var.get() if hasattr(self, 'ai_pause_var') else self.temp_settings.ai_pause_time
             if not 0 <= pause_time <= 5000:
                 messagebox.showerror(LANGUAGES[self.settings.language]["error"],
                                      LANGUAGES[self.settings.language]["ai_pause_error"])
@@ -989,12 +1056,12 @@ class SettingsWindow(BaseWindow):
                 "board_color_2": rgb_to_hex(self.temp_settings.board_color_2),
                 "piece_style": self.temp_settings.piece_style,
                 "sound_enabled": self.temp_settings.sound_enabled,
-                "ai_pause_time": self.temp_settings.ai_pause_time,
+                "ai_pause_time": pause_time,  # استفاده از متغیر محلی
                 "game_mode": self.temp_settings.game_mode,
                 "ai_vs_ai_mode": self.temp_settings.ai_vs_ai_mode,
                 "repeat_hands": self.temp_settings.repeat_hands,
                 "player_1_name": self.temp_settings.player_1_name or "Player 1",
-                "player_2_name": self.temp_settings.player_2_name or "Player 2",
+                "player_2_name": self.temp_settings.player2_name or "Player 2",
                 "al1_name": self.temp_settings.al1_name or "AI 1",
                 "al2_name": self.temp_settings.al2_name or "AI 2",
                 "player_1_image": self.temp_settings.player_1_image or "",
@@ -1079,21 +1146,24 @@ class SettingsWindow(BaseWindow):
                 # به‌روزرسانی توانایی‌ها بر اساس مقادیر عددی
                 ability_mapping = {
                     1: "very_weak",
-                    2: "weak",
-                    3: "medium",
-                    4: "strong",
-                    5: "very_strong"
+                    3: "weak",
+                    5: "medium",
+                    7: "strong",
+                    9: "very_strong"
                 }
-                self.player_1_ability_var.set(
-                    LANGUAGES[self.settings.language][
-                        ability_mapping.get(self.temp_settings.player_1_ability, "medium")
-                    ]
-                )
-                self.player_2_ability_var.set(
-                    LANGUAGES[self.settings.language][
-                        ability_mapping.get(self.temp_settings.player_2_ability, "medium")
-                    ]
-                )
+                # تنظیم مقادیر منوی کشویی برای توانایی‌ها
+                if hasattr(self, 'player_1_ability_var'):
+                    self.player_1_ability_var.set(
+                        LANGUAGES[self.settings.language][
+                            ability_mapping.get(self.temp_settings.player_1_ability, "medium")
+                        ]
+                    )
+                if hasattr(self, 'player_2_ability_var'):
+                    self.player_2_ability_var.set(
+                        LANGUAGES[self.settings.language][
+                            ability_mapping.get(self.temp_settings.player_2_ability, "medium")
+                        ]
+                    )
                 # به‌روزرسانی رابط کاربری
                 self.update_ui()
                 messagebox.showinfo(
