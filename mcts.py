@@ -9,7 +9,7 @@ import json
 import gzip
 from contextlib import closing
 from time import time
-from .config import load_config
+from .config import load_ai_config
 
 try:
     mp.set_start_method('spawn', force=True)
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class MCTS:
     def __init__(self, ai, game, neural_net):
-        config = load_config()
+        config = load_ai_config()
         mcts_params = config["mcts_params"]
         self.ai = ai
         self.game = game

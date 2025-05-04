@@ -1,4 +1,5 @@
 import pygame
+import os
 import numpy as np
 from .constants import SQUARE_SIZE, BORDER_THICKNESS, MENU_HEIGHT
 from .config import load_config

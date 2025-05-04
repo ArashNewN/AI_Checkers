@@ -103,10 +103,10 @@ class GameInterface:
             self.settings.board_color_2 = hex_to_rgb(self.pending_settings["board_color_2"])
             self.settings.piece_style = self.pending_settings.get("piece_style", self.settings.piece_style)
             self.settings.sound_enabled = self.pending_settings["sound_enabled"]
-            self.settings._pause_time = self.pending_settings.get("_pause_time", self.settings._pause_time)
-            self.settings._ability = self.pending_settings.get("_ability", getattr(self.settings, "al1_ability", 1))
+            self.settings.ai_pause_time = self.pending_settings.get("ai_pause_time", self.settings.ai_pause_time)
+            self.settings.ai_ability = self.pending_settings.get("ai_ability", getattr(self.settings, "ai_ability", 1))
             self.settings.game_mode = self.pending_settings.get("game_mode", self.settings.game_mode)
-            self.settings._vs__mode = self.pending_settings.get("_vs__mode", self.settings._vs__mode)
+            self.settings.ai_vs_ai_mode = self.pending_settings.get("ai_vs_ai_mode", self.settings.ai_vs_ai_mode)
             self.settings.repeat_hands = self.pending_settings.get("repeat_hands", self.settings.repeat_hands)
             self.settings.player_1_name = self.pending_settings.get("player_1_name", self.settings.player_1_name)
             self.settings.player_2_name = self.pending_settings.get("player_2_name", self.settings.player_2_name)
@@ -126,10 +126,10 @@ class GameInterface:
                                                                          self.settings.player_2_king_image)
             self.settings.pause_between_hands = self.pending_settings.get("pause_between_hands",
                                                                          self.settings.pause_between_hands)
-            self.settings.player_1__type = self.pending_settings.get("player_1__type",
-                                                                     self.settings.player_1__type)
-            self.settings.player_2__type = self.pending_settings.get("player_2__type",
-                                                                     self.settings.player_2__type)
+            self.settings.player_1_ai_type = self.pending_settings.get("player_1_ai_type",
+                                                                       self.settings.player_1_ai_type)
+            self.settings.player_2_ai_type = self.pending_settings.get("player_2_ai_type",
+                                                                       self.settings.player_2_ai_type)
             self.pending_settings = None
             self.load_player_images()
             self.load_piece_images()

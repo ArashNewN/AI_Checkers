@@ -23,7 +23,7 @@ from .timer import TimerManager
 class Game:
     def __init__(self, settings, interface=None):
         config = load_config()
-        self.board_size = config["network_params"]["board_size"]
+        self.board_size = config.get("network_params", {}).get("board_size", 8)
         self.max_no_capture_moves = config.get("max_no_capture_moves", 40)
 
         # تنظیمات و واسط گرافیکی

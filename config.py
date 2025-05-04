@@ -1,7 +1,9 @@
 import json
+import os
+import sys
 from pathlib import Path
+import importlib
 
-# دیکشنری زبان‌ها
 LANGUAGES = {
     "en": {
         "piece_images": "Piece Images",
@@ -16,9 +18,12 @@ LANGUAGES = {
         "add_new_ai": "add_new_ai",
         "draws": "Draws",
         "time": "TIME:",
+        "remove_ai": "remove_ai:",
         "avg_move_time": "Avg Move Time (ms)",
         "settings": "Settings",
         "help": "Help",
+        "player_1_color": "player_1_color",
+        "player_2_color": "player_2_color",
         "about_me": "About me",
         "start_game": "Start Game",
         "new_game": "New Game",
@@ -101,6 +106,7 @@ LANGUAGES = {
         "az2_training_params": "AlphaZero 2 Training Parameters",
         "mcts_params": "MCTS Parameters",
         "medium": "Medium",
+        "default_ai_params": "default_ai_params",
         "network_params": "Network Parameters",
         "advanced_nn_params": "Advanced NN Parameters",
         "reset_tab": "Reset This Tab",
@@ -126,23 +132,35 @@ LANGUAGES = {
         "player_2_ability": "player_2_ability",
         "player_1_ability": "player_1_ability",
         "remove": "remove",
+        "info": "info",
+        "ability": "ability",
         "ai_pause_time_ms": "ai_pause_time_ms",
         "player_1_ai": "player_1_ai",
         "player_2_ai": "player_2_ai",
         "select_ai_to_remove": "Please select an AI to remove.",
+        "ai_players": "ai_players",
+        "no_ai_selected": "No AI selected",
+        "sound_enabled": "sound_enabled",
         "invalid_input": "Invalid input. Please enter a valid value.",
     },
     "fa": {
         "piece_images": "تصاویر مهره‌ها",
+        "sound_enabled": "sound_enabled",
         "player_1_piece": "مهره بازیکن ۱",
         "player_1_king": "شاه بازیکن ۱",
+        "info": "info",
+        "no_ai_selected": "No AI selected",
         "player_2_piece": "مهره بازیکن ۲",
         "player_2_king": "شاه بازیکن ۲",
         "add_ai": "add_ai",
+        "ability": "ability",
         "status": "status",
+        "ai_players": "ai_players",
         "player_1_ai": "player_1_ai",
         "player_2_ai": "player_2_ai",
         "ai_pause_time_ms": "ai_pause_time_ms",
+        "player_1_color": "player_1_color",
+        "player_2_color": "player_2_color",
         "add": "add",
         "player_2_ability": "player_2_ability",
         "player_1_ability": "player_1_ability",
@@ -157,6 +175,7 @@ LANGUAGES = {
         "settings_reset": "تنظیمات به مقادیر پیش‌فرض بازنشانی شدند.",
         "ai_added": "هوش مصنوعی با موفقیت اضافه شد.",
         "ai_settings_tab": "ai_settings_tab",
+        "remove_ai": "remove_ai:",
         "ai_removed": "هوش مصنوعی با موفقیت حذف شد.",
         "fill_all_fields": "لطفاً تمام فیلدهای مورد نیاز را پر کنید.",
         "ai_type_exists": "این نوع هوش مصنوعی قبلاً وجود دارد.",
@@ -245,6 +264,7 @@ LANGUAGES = {
         "very_weak": "خیلی ضعیف",
         "weak": "ضعیف",
         "medium": "متوسط",
+        "default_ai_params": "default_ai_params",
         "strong": "قوی",
         "settings_saved": "تنظیمات با موفقیت ذخیره شدند.",
         "very_strong": "خیلی قوی",
@@ -267,13 +287,16 @@ def get_stats_path():
     """بازگرداندن مسیر فایل stats.json"""
     return Path(__file__).parent.parent / "stats.json"
 
+def get_config_path():
+    """بازگرداندن مسیر فایل config.json"""
+    return Path(__file__).parent.parent / "config.json"
+
 def get_ai_config_path():
     """بازگرداندن مسیر فایل ai_config.json"""
     return Path(__file__).parent.parent / "ai_config.json"
 
-# ... (بقیه imports و LANGUAGES بدون تغییر)
 def load_config():
-    """بارگذاری تنظیمات از فایل config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
+    """بارگذاری تنظیمات غیر AI از فایل config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
     default_config = {
         # ثابت‌های رابط کاربری
         "square_size": 80,
@@ -340,9 +363,7 @@ def load_config():
         "player_2_color": "#0000ff",
         "board_color_1": "#ffffff",
         "board_color_2": "#8b4513",
-
         "max_no_capture_moves": 40,
-
         "ai_configs": {
             "player_1": {
                 "ai_type": "none",
@@ -375,7 +396,6 @@ def load_config():
                 }
             }
         },
-
         "default_ai_params": {
             "training_params": {
                 "memory_size": 10000,
@@ -397,7 +417,6 @@ def load_config():
                 "safety_penalty": -0.5
             }
         },
-
         "mcts_params": {
             "c_puct": 1.0,
             "num_simulations": 200,
@@ -406,7 +425,6 @@ def load_config():
             "cache_file": "state_cache.json.gz",
             "cache_save_interval": 100
         },
-
         "network_params": {
             "input_channels": 4,
             "num_filters": 64,
@@ -415,7 +433,6 @@ def load_config():
             "num_actions": 1024,
             "dropout_rate": 0.3
         },
-
         "advanced_nn_params": {
             "input_channels": 3,
             "conv1_filters": 64,
@@ -429,7 +446,6 @@ def load_config():
             "fc_layer_sizes": [512, 256],
             "dropout_rate": 0.3
         },
-
         "end_game_rewards": {
             "win_no_timeout": 100,
             "win_timeout": 0,
@@ -442,12 +458,11 @@ def load_config():
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                # به‌روزرسانی تنظیمات موجود با پیش‌فرض‌ها برای جلوگیری از نبود کلیدها
+                # به‌روزرسانی تنظیمات موجود با پیش‌فرض‌ها
                 for key, value in default_config.items():
                     if key not in config:
                         config[key] = value
                     elif isinstance(value, dict):
-                        # برای دیکشنری‌ها، به‌روزرسانی عمیق انجام شود
                         for sub_key, sub_value in value.items():
                             if sub_key not in config[key]:
                                 config[key][sub_key] = sub_value
@@ -462,14 +477,168 @@ def load_config():
         save_config(config)
     return config
 
-def get_config_path():
-    return Path(__file__).parent.parent / "config.json"
-
 def save_config(config):
+    """ذخیره تنظیمات غیر AI در فایل config.json"""
     config_path = get_config_path()
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
     print(f"Config saved to {config_path}")
+
+def load_ai_config():
+    """بارگذاری تنظیمات AI از فایل ai_config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
+    default_ai_config = {
+        "ai_types": {},  # بدون AI‌های پیش‌فرض
+        "ai_configs": {
+            "player_1": {
+                "ai_type": "none",
+                "ability_level": 5,
+                "training_params": {},
+                "reward_weights": {
+                    "piece_difference": 1.0,
+                    "king_bonus": 2.0,
+                    "position_bonus": 0.1,
+                    "capture_bonus": 1.0,
+                    "multi_jump_bonus": 2.0,
+                    "king_capture_bonus": 3.0,
+                    "mobility_bonus": 0.1,
+                    "safety_penalty": -0.5
+                }
+            },
+            "player_2": {
+                "ai_type": "none",
+                "ability_level": 5,
+                "training_params": {},
+                "reward_weights": {
+                    "piece_difference": 1.0,
+                    "king_bonus": 2.0,
+                    "position_bonus": 0.1,
+                    "capture_bonus": 1.0,
+                    "multi_jump_bonus": 2.0,
+                    "king_capture_bonus": 3.0,
+                    "mobility_bonus": 0.1,
+                    "safety_penalty": -0.5
+                }
+            }
+        },
+        "default_ai_params": {
+            "training_params": {
+                "memory_size": 10000,
+                "batch_size": 128,
+                "learning_rate": 0.001,
+                "gamma": 0.99,
+                "epsilon_start": 1.0,
+                "epsilon_end": 0.01,
+                "epsilon_decay": 0.999
+            },
+            "reward_weights": {
+                "piece_difference": 1.0,
+                "king_bonus": 2.0,
+                "position_bonus": 0.1,
+                "capture_bonus": 1.0,
+                "multi_jump_bonus": 2.0,
+                "king_capture_bonus": 3.0,
+                "mobility_bonus": 0.1,
+                "safety_penalty": -0.5
+            }
+        },
+        "mcts_params": {
+            "c_puct": 1.0,
+            "num_simulations": 200,
+            "max_cache_size": 10000,
+            "num_processes": 4,
+            "cache_file": "state_cache.json.gz",
+            "cache_save_interval": 100
+        },
+        "network_params": {
+            "input_channels": 4,
+            "num_filters": 64,
+            "num_blocks": 8,
+            "board_size": 8,
+            "num_actions": 1024,
+            "dropout_rate": 0.3
+        },
+        "advanced_nn_params": {
+            "input_channels": 3,
+            "conv1_filters": 64,
+            "conv1_kernel_size": 3,
+            "conv1_padding": 1,
+            "residual_block1_filters": 64,
+            "residual_block2_filters": 128,
+            "conv2_filters": 128,
+            "attention_embed_dim": 128,
+            "attention_num_heads": 4,
+            "fc_layer_sizes": [512, 256],
+            "dropout_rate": 0.3
+        },
+        "end_game_rewards": {
+            "win_no_timeout": 100,
+            "win_timeout": 0,
+            "draw": -50,
+            "loss": -100
+        }
+    }
+
+    ai_config_path = get_ai_config_path()
+    try:
+        if ai_config_path.exists():
+            with open(ai_config_path, "r", encoding="utf-8") as f:
+                ai_config = json.load(f)
+                # به‌روزرسانی تنظیمات موجود با پیش‌فرض‌ها
+                for key, value in default_ai_config.items():
+                    if key not in ai_config:
+                        ai_config[key] = value
+                    elif isinstance(value, dict):
+                        for sub_key, sub_value in value.items():
+                            if sub_key not in ai_config[key]:
+                                ai_config[key][sub_key] = sub_value
+                print(f"Loaded AI config from {ai_config_path}")
+        else:
+            print(f"AI config file not found at {ai_config_path}, creating with default config")
+            ai_config = default_ai_config
+            save_ai_config(ai_config)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"Error loading AI config from {ai_config_path}: {e}, using default AI config")
+        ai_config = default_ai_config
+        save_ai_config(ai_config)
+
+    # تنظیم مسیر دایرکتوری پروژه و بررسی ماژول‌های AI
+    project_dir = Path(__file__).parent
+    root_dir = project_dir.parent
+    if str(root_dir) not in sys.path:
+        sys.path.append(str(root_dir))
+
+    valid_ai_types = {}
+    for ai_type, ai_info in ai_config.get("ai_types", {}).items():
+        module_name = ai_info.get("module", "")
+        full_module_name = f"a.{module_name}"
+        module_path = project_dir / f"{module_name}.py"
+
+        print(f"Checking module: {module_path}")
+        if module_path.exists():
+            try:
+                module = importlib.import_module(full_module_name)
+                if hasattr(module, ai_info.get("class", "")):
+                    valid_ai_types[ai_type] = ai_info
+                else:
+                    print(f"AI type {ai_type} ignored: class '{ai_info.get('class', '')}' not found in module {module_name}")
+            except Exception as e:
+                print(f"Error importing module {module_name}: {str(e)}")
+        else:
+            print(f"AI type {ai_type} ignored: module {module_name}.py not found")
+
+    ai_config["ai_types"] = valid_ai_types
+    return ai_config
+
+def save_ai_config(ai_config):
+    """ذخیره تنظیمات AI در فایل ai_config.json"""
+    ai_config_path = get_ai_config_path()
+    try:
+        ai_config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(ai_config_path, "w", encoding="utf-8") as f:
+            json.dump(ai_config, f, ensure_ascii=False, indent=4)
+        print(f"AI config saved to {ai_config_path}")
+    except Exception as e:
+        print(f"Error saving AI config to {ai_config_path}: {e}")
 
 def load_stats():
     """بارگذاری آمار بازی"""
@@ -506,47 +675,3 @@ def save_stats(stats):
         print(f"Stats saved to {stats_path}")
     except Exception as e:
         print(f"Error saving stats to {stats_path}: {e}")
-
-def load_ai_config():
-    """بارگذاری تنظیمات AI از فایل ai_config.json"""
-    ai_config_path = get_ai_config_path()
-    default_ai_config = {
-        "available_ais": [
-            {
-                "type": "advanced",
-                "module": "advanced_ai",
-                "class": "AdvancedAI",
-                "description": "Advanced AI with deep learning"
-            },
-            {
-                "type": "alphazero",
-                "module": "alphazero_ai",
-                "class": "AlphaZeroAI",
-                "description": "AlphaZero-based AI"
-            }
-        ]
-    }
-    try:
-        if ai_config_path.exists():
-            with open(ai_config_path, "r", encoding="utf-8") as f:
-                ai_config = json.load(f)
-                default_ai_config.update(ai_config)
-                print(f"Loaded AI config from {ai_config_path}")
-        else:
-            print(f"AI config file not found at {ai_config_path}, creating with default config")
-            save_ai_config(default_ai_config)
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"Error loading AI config from {ai_config_path}: {e}, using default AI config")
-        save_ai_config(default_ai_config)
-    return default_ai_config
-
-def save_ai_config(ai_config):
-    """ذخیره تنظیمات AI در فایل ai_config.json"""
-    ai_config_path = get_ai_config_path()
-    try:
-        ai_config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(ai_config_path, "w", encoding="utf-8") as f:
-            json.dump(ai_config, f, ensure_ascii=False, indent=4)
-        print(f"AI config saved to {ai_config_path}")
-    except Exception as e:
-        print(f"Error saving AI config to {ai_config_path}: {e}")
