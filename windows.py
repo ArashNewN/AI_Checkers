@@ -577,11 +577,10 @@ class SettingsWindow(BaseWindow):
             sys.path.append(str(root_dir))
 
         modules = []
-        ai_module_candidates = ["advanced_ai", "alphazero_ai", "minimax_ai"]
 
         for py_file in project_dir.glob("*.py"):
             module_name = py_file.stem
-            if module_name.startswith("__") or module_name not in ai_module_candidates:
+            if module_name.startswith("__"):
                 continue
             full_module_name = f"a.{module_name}"
             try:
@@ -1040,39 +1039,62 @@ class SettingsWindow(BaseWindow):
             )
 
     def reset(self):
-        if messagebox.askyesno(LANGUAGES[self.settings.language]["warning"],
-                               LANGUAGES[self.settings.language]["reset_settings_warning"]):
-            try:
-                default_config = load_config()
-                default_ai_config = load_ai_config()
-                self.temp_settings = GameSettings()
-                for key, value in default_config.items():
-                    if hasattr(self.temp_settings, key):
-                        setattr(self.temp_settings, key, value)
-                self.temp_settings.ai_configs = default_ai_config.get("ai_configs", {
-                    "player_1": {
-                        "ai_type": "none",
-                        "ability_level": 5,
-                        "training_params": default_ai_config["default_ai_params"]["training_params"],
-                        "reward_weights": default_ai_config["default_ai_params"]["reward_weights"]
-                    },
-                    "player_2": {
-                        "ai_type": "none",
-                        "ability_level": 5,
-                        "training_params": default_ai_config["default_ai_params"]["training_params"],
-                        "reward_weights": default_ai_config["default_ai_params"]["reward_weights"]
-                    }
-                })
-                self.update_ui()
-                messagebox.showinfo(
-                    LANGUAGES[self.settings.language]["info"],
-                    LANGUAGES[self.settings.language]["settings_reset"]
-                )
-            except Exception as e:
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    f"خطا در بازنشانی تنظیمات: {str(e)}"
-                )
+        """بازنشانی تنظیمات به مقادیر پیش‌فرض و ذخیره در فایل‌های JSON."""
+        print("Reset called")  # لاگ دیباگ
+        try:
+            config = load_config()
+            print("Config loaded:", config)  # لاگ دیباگ
+            # ایجاد نمونه جدید از temp_settings
+            self.temp_settings = type(self.temp_settings)()
+            # تنظیمات عمومی
+            self.temp_settings.language = config.get("language", "en")
+            self.temp_settings.game_mode = config.get("game_mode", "human_vs_human")
+            self.temp_settings.ai_vs_ai_mode = config.get("ai_vs_ai_mode", "only_once")
+            self.temp_settings.repeat_hands = config.get("repeat_hands", 1)
+            self.temp_settings.player_starts = config.get("player_starts", True)
+            self.temp_settings.use_timer = config.get("use_timer", False)
+            self.temp_settings.game_time = config.get("game_time", 5)
+            self.temp_settings.piece_style = config.get("piece_style", "classic")
+            self.temp_settings.sound_enabled = config.get("sound_enabled", True)
+            self.temp_settings.ai_pause_time = config.get("ai_pause_time", 100)
+            self.temp_settings.player_1_name = config.get("player_1_name", "Player 1")
+            self.temp_settings.player_2_name = config.get("player_2_name", "Player 2")
+            self.temp_settings.al1_name = config.get("al1_name", "AI 1")
+            self.temp_settings.al2_name = config.get("al2_name", "AI 2")
+            # تنظیم رنگ‌ها
+            self.temp_settings.player_1_color = hex_to_rgb(config.get("player_1_color", "#ff0000"))
+            self.temp_settings.player_2_color = hex_to_rgb(config.get("player_2_color", "#0000ff"))
+            self.temp_settings.board_color_1 = hex_to_rgb(config.get("board_color_1", "#ffffff"))
+            self.temp_settings.board_color_2 = hex_to_rgb(config.get("board_color_2", "#8b4513"))
+            # تنظیمات AI
+            self.temp_settings.ai_configs = {
+                "player_1": {
+                    "ai_type": "none",
+                    "ability_level": 5,
+                    "training_params": config.get("default_ai_params", {}).get("training_params", {}),
+                    "reward_weights": config.get("default_ai_params", {}).get("reward_weights", {})
+                },
+                "player_2": {
+                    "ai_type": "none",
+                    "ability_level": 5,
+                    "training_params": config.get("default_ai_params", {}).get("training_params", {}),
+                    "reward_weights": config.get("default_ai_params", {}).get("reward_weights", {})
+                }
+            }
+            print("Temp settings after reset:", vars(self.temp_settings))  # لاگ دیباگ
+            self.update_ui()
+            self.save()  # ذخیره تنظیمات پیش‌فرض در فایل‌های JSON
+            print("Reset completed, settings saved")  # لاگ دیباگ
+            messagebox.showinfo(
+                LANGUAGES[self.settings.language]["info"],
+                LANGUAGES[self.settings.language]["settings_reset"]
+            )
+        except Exception as e:
+            print(f"Error in reset: {str(e)}")  # لاگ دیباگ
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                f"خطا در بازنشانی تنظیمات: {str(e)}"
+            )
 
     def update_ui(self):
         if not self.window or not self.is_open:
@@ -1085,13 +1107,15 @@ class SettingsWindow(BaseWindow):
         self.timer_var.set("with_timer" if self.temp_settings.use_timer else "no_timer")
         self.timer_var_duration.set(self.temp_settings.game_time)
         self.piece_style_var.set(self.temp_settings.piece_style)
-        self.sound_var.set(self.temp_settings.sound_enabled)
+        if hasattr(self, 'sound_var'):
+            self.sound_var.set(self.temp_settings.sound_enabled)
         if hasattr(self, 'ai_pause_var'):
             self.ai_pause_var.set(self.temp_settings.ai_pause_time)
         self.player_1_name_var.set(self.temp_settings.player_1_name)
         self.player_2_name_var.set(self.temp_settings.player_2_name)
         self.al1_name_var.set(self.temp_settings.al1_name)
         self.al2_name_var.set(self.temp_settings.al2_name)
+        # تنظیم رنگ‌ها با فرمت هگز
         self.player_1_color_var.set(rgb_to_hex(self.temp_settings.player_1_color))
         self.player_2_color_var.set(rgb_to_hex(self.temp_settings.player_2_color))
         self.board_color_1_var.set(rgb_to_hex(self.temp_settings.board_color_1))
@@ -1124,6 +1148,7 @@ class SettingsWindow(BaseWindow):
         self.toggle_ai_vs_ai_options()
         self.toggle_repeat_options()
         self.toggle_timer()
+        self.update_ai_dropdowns()
 
 class ALProgressWindow(BaseWindow):
     def create_widgets(self):

@@ -466,7 +466,6 @@ def load_config():
                         for sub_key, sub_value in value.items():
                             if sub_key not in config[key]:
                                 config[key][sub_key] = sub_value
-                print(f"Loaded config from {config_path}")
         else:
             print(f"Config file not found at {config_path}, creating with default config")
             config = default_config
@@ -575,7 +574,19 @@ def load_ai_config():
             "win_timeout": 0,
             "draw": -50,
             "loss": -100
-        }
+        },
+        "available_ais": [
+            {
+                "type": "base_ai",
+                "module": "a.base_ai",
+                "class": "BaseAI"
+            },
+            {
+                "type": "advanced_ai",
+                "module": "a.advanced_ai",
+                "class": "AdvancedAI"
+            }
+        ]
     }
 
     ai_config_path = get_ai_config_path()
@@ -656,7 +667,6 @@ def load_stats():
             with open(stats_path, "r", encoding="utf-8") as f:
                 stats = json.load(f)
                 default_stats.update(stats)
-                print(f"Loaded stats from {stats_path}")
         else:
             print(f"Stats file not found at {stats_path}, creating with default stats")
             save_stats(default_stats)

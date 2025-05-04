@@ -1,5 +1,3 @@
-# === game.py (New Version) ===
-
 import pygame
 import os
 import random
@@ -8,20 +6,13 @@ from .board import Board
 import importlib
 from .timer import TimerManager
 from .rewards import RewardCalculator
-from .config import load_config, load_stats, save_stats
+from .config import load_config, load_stats, save_stats, load_ai_config
 from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, BOARD_WIDTH, MENU_HEIGHT, BORDER_THICKNESS, SQUARE_SIZE, RED
-from .base_ai import BaseAI  # فرض می‌کنیم رابط AI در base_ai.py تعریف شده
-
-# game.py
-import pygame
-from .config import load_config
-from .rewards import RewardCalculator
-from .timer import TimerManager
-
-
+from .base_ai import BaseAI
 
 class Game:
     def __init__(self, settings, interface=None):
+        print("Game.__init__ called")  # لاگ دیباگ
         config = load_config()
         self.board_size = config.get("network_params", {}).get("board_size", 8)
         self.max_no_capture_moves = config.get("max_no_capture_moves", 40)
@@ -44,8 +35,7 @@ class Game:
         self.player_2_wins = stats["player_2_wins"]
 
         # مدیریت AIها
-        self.ai_players = {}  # دیکشنری: {ai_id: ai_instance}
-        # فقط در صورتی که حداقل یک بازیکن AI باشد، RewardCalculator ایجاد شود
+        self.ai_players = {}
         if self.settings.game_mode in ["human_vs_ai", "ai_vs_ai"] or \
                 self.settings.player_1_ai_type != "none" or \
                 self.settings.player_2_ai_type != "none":
@@ -65,18 +55,18 @@ class Game:
         # شروع اولیه
         self.init_game()
 
-    def update_ai_players(self):
-        """به‌روزرسانی AIهای بازیکنان بر اساس تنظیمات"""
-        import importlib
-        from .config import load_ai_config
 
+    def update_ai_players(self):
+
+        print("update_ai_players called")
+        print(f"player_1_ai_type: {self.settings.player_1_ai_type}")
+        print(f"player_2_ai_type: {self.settings.player_2_ai_type}")
         self.ai_players.clear()
         ai_config = load_ai_config()
         players = [
             ("player_1", self.settings.player_1_ai_type, "ai_1"),
             ("player_2", self.settings.player_2_ai_type, "ai_2")
         ]
-
         for player, ai_type, ai_id in players:
             if ai_type != "none":
                 try:
@@ -84,10 +74,12 @@ class Game:
                     if not ai_info:
                         print(f"AI type {ai_type} not found in ai_config.json")
                         continue
+                    print(f"Loading module: {ai_info['module']}")
                     module = importlib.import_module(ai_info["module"])
                     ai_class = getattr(module, ai_info["class"])
-                    self.ai_players[ai_id] = ai_class(self, player == "player_2", ai_type, ai_id, self.settings)
-                    print(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
+                    color = "black" if player == "player_2" else "red"
+                    self.ai_players[ai_id] = ai_class(self, color, ai_type, ai_id, self.settings)
+                    print(f"Loaded AI: {ai_type} for {player} (ID: {ai_id}, color: {color})")
                 except Exception as e:
                     print(f"Error loading AI {ai_type} for {player}: {e}")
 
@@ -97,13 +89,10 @@ class Game:
         if ai_type == "none":
             return None
         try:
-            # بارگذاری تنظیمات AI از ai_config.json
             ai_config = load_ai_config()
             ai_info = next((ai for ai in ai_config["available_ais"] if ai["type"] == ai_type), None)
             if not ai_info:
                 raise ValueError(f"AI type {ai_type} not found in ai_config.json")
-
-            # بارگذاری پویای ماژول و کلاس
             module = importlib.import_module(ai_info["module"])
             ai_class = getattr(module, ai_info["class"])
             return ai_class(self, color, model_name, ai_id, self.settings)
@@ -113,6 +102,7 @@ class Game:
 
     def init_game(self):
         """راه‌اندازی اولیه بازی."""
+        print("init_game called")  # لاگ دیباگ
         self.board = Board(self.settings)
         self.selected = None
         self.turn = False if self.settings.player_starts else True
@@ -132,6 +122,7 @@ class Game:
 
     def start_game(self):
         """شروع بازی."""
+        print("start_game called")  # لاگ دیباگ
         self.game_started = True
         self.game_over = False
         self.winner = None
@@ -148,6 +139,7 @@ class Game:
 
     def reset_board(self):
         """ریست کردن صفحه بازی."""
+        print("reset_board called")  # لاگ دیباگ
         self.board = Board(self.settings)
         self.selected = None
         self.turn = False if self.settings.player_starts else True
@@ -162,6 +154,50 @@ class Game:
         self.timer.start_game()
         self.last_update_time = pygame.time.get_ticks()
         self.update_ai_players()
+
+    def make_ai_move(self):
+
+        ai = None
+        target_ai_id = "ai_2" if self.turn else "ai_1"
+        ai = self.ai_players.get(target_ai_id)
+        if not ai:
+            return
+        valid_pieces = []
+        for row in range(self.board_size):
+            for col in range(self.board_size):
+                piece = self.board.board[row, col]
+                if piece != 0 and (piece < 0) == self.turn:
+                    moves = self.get_valid_moves(row, col)
+                    if moves:
+                        valid_pieces.append(((row, col), moves))
+        try:
+            move = ai.get_move(self.board.board)
+            print(f"AI selected move: {move}")
+            if move and move[1] in moves:
+                self.last_state = self.board.board.copy()
+                self.last_action = move
+                self.selected = (row, col)
+                self.valid_moves = moves
+                if self._move(move[1][0], move[1][1]):
+                    self.move_log.append((row, col, move[1][0], move[1][1]))
+                    if len(self.move_log) > 30:
+                        self.move_log.pop(0)
+                    if self.reward_calculator:
+                        reward = self.reward_calculator.get_reward()
+                        ai.update(move, reward)
+                    if self.game_over:
+                        ai.save_model()
+                        if hasattr(ai, 'update_target_network'):
+                            ai.update_target_network()
+                    if self.settings.sound_enabled and os.path.exists('move.wav'):
+                        try:
+                            pygame.mixer.Sound('move.wav').play()
+                        except pygame.error as e:
+                            print(f"Error playing move.wav: {e}")
+            else:
+                print(f"Invalid move by AI: {move}")
+        except Exception as e:
+            print(f"Error in AI move (AI ID: {ai.ai_id}): {e}")
 
     def _update_game(self):
         """به‌روزرسانی وضعیت بازی."""
@@ -221,56 +257,6 @@ class Game:
                 "player_1_wins": self.player_1_wins,
                 "player_2_wins": self.player_2_wins
             })
-
-    def make_ai_move(self, current_state=None):
-        """اجرای حرکت توسط AI مناسب."""
-        # پیدا کردن AI برای نوبت فعلی
-        ai = None
-        for ai_id, ai_instance in self.ai_players.items():
-            if ai_instance and ai_instance.color == (self.settings.player_2_color if self.turn else self.settings.player_1_color):
-                ai = ai_instance
-                break
-
-        if not ai:
-            return
-
-        valid_pieces = []
-        for row in range(self.board_size):
-            for col in range(self.board_size):
-                piece = self.board.board[row, col]
-                if piece != 0 and (piece < 0) == self.turn:
-                    moves = self.get_valid_moves(row, col)
-                    if moves:
-                        valid_pieces.append(((row, col), moves))
-
-        if valid_pieces:
-            (row, col), moves = random.choice(valid_pieces)
-            try:
-                move = ai.act(self, moves)
-                if move and move in moves:
-                    self.last_state = current_state
-                    self.last_action = move
-                    self.selected = (row, col)
-                    self.valid_moves = moves
-                    if self._move(move[0], move[1]):
-                        self.move_log.append((row, col, move[0], move[1]))
-                        if len(self.move_log) > 30:
-                            self.move_log.pop(0)
-                        ai.replay()
-                    if self.game_over:
-                        ai.save_model()
-                        # پشتیبانی از AIهایی که شبکه هدف دارن
-                        if hasattr(ai, 'update_target_network'):
-                            ai.update_target_network()
-
-                    # پخش صدا
-                    if self.settings.sound_enabled and os.path.exists('move.wav') and os.path.getsize('move.wav') > 0:
-                        try:
-                            pygame.mixer.Sound('move.wav').play()
-                        except pygame.error as e:
-                            print(f"Error playing move.wav: {e}")
-            except Exception as e:
-                print(f"Error in AI move (AI ID: {ai.ai_id}): {e}")
 
     def handle_click(self, pos):
         """مدیریت کلیک کاربر."""

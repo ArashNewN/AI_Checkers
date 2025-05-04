@@ -207,8 +207,6 @@ class GameInterface:
                         f"Error loading image {path}: {e}",
                         parent=self.root
                     )
-            if surface is None:
-                print(f"Using default piece style for {attr}")
             setattr(self, attr, surface)
 
     def draw_piece(self, screen, piece_value, row, col):
@@ -488,28 +486,36 @@ class GameInterface:
                     if not (settings_window.is_open or al_progress_window.is_open or az_progress_window.is_open or
                             help_window.is_open or about_window.is_open):
                         if pos[0] < 130:
+                            print("Opening al_progress_window")
                             al_progress_window.create_widgets()
                             al_progress_window.is_open = True
                         elif 130 <= pos[0] < 260:
+                            print("Opening az_progress_window")
                             az_progress_window.create_widgets()
                             az_progress_window.is_open = True
                         elif 260 <= pos[0] < 355:
+                            print("Opening settings_window")
                             settings_window.create_widgets()
                             settings_window.is_open = True
                         elif 355 <= pos[0] < 420:
+                            print("Opening help_window")
                             help_window.create_widgets()
                             help_window.is_open = True
                         elif 420 <= pos[0] < 480:
+                            print("Opening about_window")
                             about_window.create_widgets()
                             about_window.is_open = True
                 elif self.new_game_button.is_clicked(pos):
+                    print("New game button clicked")
                     if not self.game.game_started:
+                        print("Starting new game")
                         self.game.start_game()
                         self.new_game_button.text = LANGUAGES[self.settings.language]["new_game"]
                         self.last_update = pygame.time.get_ticks()
                         self.current_hand = 0
                         self.auto_start_triggered = False
-                        if self.settings.sound_enabled and os.path.exists('start.wav') and os.path.getsize('start.wav') > 0:
+                        if self.settings.sound_enabled and os.path.exists('start.wav') and os.path.getsize(
+                                'start.wav') > 0:
                             try:
                                 pygame.mixer.Sound('start.wav').play()
                             except pygame.error as e:
@@ -521,6 +527,7 @@ class GameInterface:
                             parent=self.root
                         )
                         if confirmed:
+                            print("Restarting game")
                             self.game.game_over = True
                             self.game.score_updated = False
                             self.game.init_game()
@@ -533,6 +540,7 @@ class GameInterface:
                             self.auto_start_triggered = False
                             pygame.event.clear()
                     elif self.game.game_over:
+                        print("Starting new game after game over")
                         self.game.game_over = True
                         self.game.score_updated = False
                         self.game.init_game()
@@ -545,15 +553,17 @@ class GameInterface:
                         self.auto_start_triggered = False
                         pygame.event.clear()
                 elif self.reset_scores_button.is_clicked(pos):
+                    print("Reset scores button clicked")
                     if messagebox.askyesno(
-                        LANGUAGES[self.settings.language]["warning"],
-                        LANGUAGES[self.settings.language]["reset_scores_warning"],
-                        parent=self.root
+                            LANGUAGES[self.settings.language]["warning"],
+                            LANGUAGES[self.settings.language]["reset_scores_warning"],
+                            parent=self.root
                     ):
                         self.game.player_1_wins = 0
                         self.game.player_2_wins = 0
                         save_stats({"player_1_wins": 0, "player_2_wins": 0})
                 elif self.game.game_started:
+                    print("Handling board click")
                     self.game.handle_click(pos)
         return True
 
@@ -561,39 +571,47 @@ class GameInterface:
         current_time = pygame.time.get_ticks()
         self.game._update_game()
         if self.game.game_started and not self.game.game_over:
-            if self.settings.game_mode == "_vs_":
+            if self.settings.game_mode == "ai_vs_ai":
                 if self.player_1_move_ready and not self.game.turn:
+                    print("Player 1 AI move ready")
                     self.player_1_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make__move(self.game.player_1_)
+                    self.game.make_ai_move()  # اصلاح خطای تایپی
                 elif self.player_2_move_ready and self.game.turn:
+                    print("Player 2 AI move ready")
                     self.player_2_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make__move(self.game.player_2_)
+                    self.game.make_ai_move()  # اصلاح خطای تایپی
                 elif not self.player_1_move_ready and not self.game.turn:
-                    if current_time - self._move_start_time >= self.settings._pause_time:
+                    if current_time - self._move_start_time >= self.settings.ai_pause_time:
+                        print("Player 1 AI move ready after pause")
                         self.player_1_move_ready = True
                 elif not self.player_2_move_ready and self.game.turn:
-                    if current_time - self._move_start_time >= self.settings._pause_time:
+                    if current_time - self._move_start_time >= self.settings.ai_pause_time:
+                        print("Player 2 AI move ready after pause")
                         self.player_2_move_ready = True
-            elif self.settings.game_mode == "human_vs_" and self.game.turn:
+            elif self.settings.game_mode == "human_vs_ai" and self.game.turn:
                 if self.player_2_move_ready:
+                    print("Player 2 AI move ready (human_vs_ai)")
                     self.player_2_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make__move(self.game.player_2_)
-                elif current_time - self._move_start_time >= self.settings._pause_time:
+                    self.game.make_ai_move()  # اصلاح خطای تایپی
+                elif current_time - self._move_start_time >= self.settings.ai_pause_time:
+                    print("Player 2 AI move ready after pause (human_vs_ai)")
                     self.player_2_move_ready = True
-        if self.game.game_over and self.settings.game_mode == "_vs_" and self.settings._vs__mode == "repeat_game":
+        if self.game.game_over and self.settings.game_mode == "ai_vs_ai" and self.settings.ai_vs_ai_mode == "repeat_game":
             if self.current_hand < self.settings.repeat_hands:
                 if self.pause_start_time is None:
                     self.pause_start_time = current_time
                 elif current_time - self.pause_start_time >= self.settings.pause_between_hands:
+                    print("Starting new hand")
                     self.game.reset_board()
                     self.game.start_game()
                     self.current_hand += 1
                     self.pause_start_time = None
                     self.auto_start_triggered = False
             else:
+                print("All hands completed")
                 self.auto_start_triggered = True
                 self.new_game_button.text = LANGUAGES[self.settings.language]["start_game"]
                 self.game.game_started = False
