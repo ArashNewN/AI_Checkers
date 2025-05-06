@@ -55,7 +55,6 @@ class Game:
         # شروع اولیه
         self.init_game()
 
-
     def update_ai_players(self):
 
         print("update_ai_players called")

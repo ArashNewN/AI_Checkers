@@ -133,10 +133,10 @@ LANGUAGES = {
         "player_1_ability": "player_1_ability",
         "remove": "remove",
         "info": "info",
-        "ability": "ability",
-        "ai_pause_time_ms": "ai_pause_time_ms",
-        "player_1_ai": "player_1_ai",
-        "player_2_ai": "player_2_ai",
+        "ability": "Ability",
+        "ai_pause_time_ms": "AI Pause Time (ms)",
+        "player_1_ai": "Player 1 AI",
+        "player_2_ai": "Player 2 AI",
         "select_ai_to_remove": "Please select an AI to remove.",
         "ai_players": "ai_players",
         "no_ai_selected": "No AI selected",
@@ -594,7 +594,6 @@ def load_ai_config():
         if ai_config_path.exists():
             with open(ai_config_path, "r", encoding="utf-8") as f:
                 ai_config = json.load(f)
-                # به‌روزرسانی تنظیمات موجود با پیش‌فرض‌ها
                 for key, value in default_ai_config.items():
                     if key not in ai_config:
                         ai_config[key] = value
@@ -612,7 +611,6 @@ def load_ai_config():
         ai_config = default_ai_config
         save_ai_config(ai_config)
 
-    # تنظیم مسیر دایرکتوری پروژه و بررسی ماژول‌های AI
     project_dir = Path(__file__).parent
     root_dir = project_dir.parent
     if str(root_dir) not in sys.path:
@@ -620,25 +618,32 @@ def load_ai_config():
 
     valid_ai_types = {}
     for ai_type, ai_info in ai_config.get("ai_types", {}).items():
-        module_name = ai_info.get("module", "")
-        full_module_name = f"a.{module_name}"
+        full_module_name = ai_info.get("module", "")
+        if not full_module_name.startswith("a."):
+            print(f"AI type {ai_type} ignored: invalid module name {full_module_name}")
+            continue
+        module_name = full_module_name.replace("a.", "")
         module_path = project_dir / f"{module_name}.py"
 
-        print(f"Checking module: {module_path}")
+        print(f"Checking module: {module_path} for AI type {ai_type}")
         if module_path.exists():
             try:
                 module = importlib.import_module(full_module_name)
-                if hasattr(module, ai_info.get("class", "")):
+                class_name = ai_info.get("class", "")
+                if hasattr(module, class_name):
                     valid_ai_types[ai_type] = ai_info
+                    print(f"AI type {ai_type} validated: module {full_module_name}, class {class_name}")
                 else:
-                    print(f"AI type {ai_type} ignored: class '{ai_info.get('class', '')}' not found in module {module_name}")
+                    print(f"AI type {ai_type} ignored: class '{class_name}' not found in module {full_module_name}")
             except Exception as e:
-                print(f"Error importing module {module_name}: {str(e)}")
+                print(f"AI type {ai_type} ignored: error importing module {full_module_name}: {str(e)}")
         else:
-            print(f"AI type {ai_type} ignored: module {module_name}.py not found")
+            print(f"AI type {ai_type} ignored: module file {module_path} not found")
 
     ai_config["ai_types"] = valid_ai_types
+    save_ai_config(ai_config)  # ذخیره بعد از اعتبارسنجی
     return ai_config
+
 
 def save_ai_config(ai_config):
     """ذخیره تنظیمات AI در فایل ai_config.json"""
@@ -650,6 +655,7 @@ def save_ai_config(ai_config):
         print(f"AI config saved to {ai_config_path}")
     except Exception as e:
         print(f"Error saving AI config to {ai_config_path}: {e}")
+
 
 def load_stats():
     """بارگذاری آمار بازی"""
@@ -674,6 +680,7 @@ def load_stats():
         print(f"Error loading stats from {stats_path}: {e}, using default stats")
         save_stats(default_stats)
     return default_stats
+
 
 def save_stats(stats):
     """ذخیره آمار بازی"""

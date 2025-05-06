@@ -119,14 +119,8 @@ class SettingsWindow(BaseWindow):
         if ai_type == "none":
             return True
         ai_config = load_ai_config()
-        ai_info = ai_config.get("ai_types", {}).get(ai_type)
-        if not ai_info:
-            return False
-        module_name = ai_info.get("module", "")
-        class_name = ai_info.get("class", "")
-        project_dir = Path(__file__).parent
-        module_path = project_dir / f"{module_name}.py"
-        return module_path.exists() and hasattr(importlib.import_module(f"a.{module_name}"), class_name)
+        print(f"check_ai_module: Checking ai_type '{ai_type}' in {ai_config['ai_types'].keys()}")
+        return ai_type in ai_config["ai_types"]
 
     def add_ai_type(self, ai_type, module_name, class_name, description):
         """افزودن نوع AI جدید به ai_config.json"""
@@ -217,18 +211,27 @@ class SettingsWindow(BaseWindow):
             )
 
     def update_ai_dropdowns(self):
-        """بازسازی کامل منوهای کشویی انتخاب AI"""
-        # منوهای بازیکن ۱ و ۲
+        """بازسازی کامل منوهای کشویی انتخاب AI و به‌روزرسانی ai_config.json"""
+        ai_config = load_ai_config()
+        print(f"Updating AI dropdowns with ai_types: {ai_config['ai_types'].keys()}")
+
+        # بازسازی منوهای بازیکن ۱ و ۲
         self.player_1_ai_menu['menu'].delete(0, 'end')
         self.player_2_ai_menu['menu'].delete(0, 'end')
         for ai_type in self.ai_types:
             self.player_1_ai_menu['menu'].add_command(
                 label=ai_type,
-                command=lambda value=ai_type: self.player_1_ai_type_var.set(value)
+                command=lambda value=ai_type: [
+                    self.player_1_ai_type_var.set(value),
+                    self._update_player_ai_config("player_1", value)
+                ]
             )
             self.player_2_ai_menu['menu'].add_command(
                 label=ai_type,
-                command=lambda value=ai_type: self.player_2_ai_type_var.set(value)
+                command=lambda value=ai_type: [
+                    self.player_2_ai_type_var.set(value),
+                    self._update_player_ai_config("player_2", value)
+                ]
             )
 
         # منوی حذف AI (فقط اگر تعریف شده باشد)
@@ -243,66 +246,162 @@ class SettingsWindow(BaseWindow):
         # تنظیم مقدار پیش‌فرض اگر AI انتخاب‌شده دیگر وجود ندارد
         if self.player_1_ai_type_var.get() not in self.ai_types:
             self.player_1_ai_type_var.set("none")
+            self._update_player_ai_config("player_1", "none")
+            print(f"Reset player_1 AI to 'none' (was {self.player_1_ai_type_var.get()})")
         if self.player_2_ai_type_var.get() not in self.ai_types:
             self.player_2_ai_type_var.set("none")
+            self._update_player_ai_config("player_2", "none")
+            print(f"Reset player_2 AI to 'none' (was {self.player_2_ai_type_var.get()})")
+
+    def _update_player_ai_config(self, player, ai_type):
+        """به‌روزرسانی temp_settings برای بازیکن با تنظیمات پیش‌فرض"""
+        ai_config = load_ai_config()
+        print(f"Updating {player} temp_settings to AI: {ai_type}")
+
+        # اعتبارسنجی ai_type
+        if ai_type != "none" and ai_type not in ai_config["ai_types"]:
+            print(f"Error: AI type '{ai_type}' not found in ai_config['ai_types']")
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                f"ماژول AI {ai_type} برای {player} پیدا نشد"
+            )
+            self.player_1_ai_type_var.set("none") if player == "player_1" else self.player_2_ai_type_var.set("none")
+            ai_type = "none"
+
+        # ذخیره ai_type در temp_settings
+        self.temp_settings.ai_configs[player]["ai_type"] = ai_type
+
+        # اعمال تنظیمات پیش‌فرض در temp_settings
+        default_params = ai_config.get("default_ai_params", {
+            "ability_level": 5,
+            "training_params": {
+                "memory_size": 10000,
+                "batch_size": 128,
+                "learning_rate": 0.001,
+                "gamma": 0.99,
+                "epsilon_start": 1.0,
+                "epsilon_end": 0.01,
+                "epsilon_decay": 0.999
+            },
+            "reward_weights": {
+                "piece_difference": 1.0,
+                "king_bonus": 2.0,
+                "position_bonus": 0.1,
+                "capture_bonus": 1.0,
+                "multi_jump_bonus": 2.0,
+                "king_capture_bonus": 3.0,
+                "mobility_bonus": 0.1,
+                "safety_penalty": -0.5
+            }
+        })
+        if ai_type != "none":
+            self.temp_settings.ai_configs[player]["ability_level"] = default_params["ability_level"]
+            self.temp_settings.ai_configs[player]["training_params"] = default_params["training_params"].copy()
+            self.temp_settings.ai_configs[player]["reward_weights"] = default_params["reward_weights"].copy()
+        else:
+            self.temp_settings.ai_configs[player]["ability_level"] = default_params["ability_level"]
+            self.temp_settings.ai_configs[player]["training_params"] = {}
+            self.temp_settings.ai_configs[player]["reward_weights"] = {}
+
+        print(f"Updated {player} temp_settings: {self.temp_settings.ai_configs[player]}")
 
     def add_new_ai(self):
-        """افزودن AI جدید به ai_config.json"""
+        """افزودن AI جدید به ai_config.json فقط با اطلاعات اولیه"""
         ai_type = self.new_ai_type.get().strip()
         description = self.new_description.get().strip()
-        module_class = self.ai_module_class_var.get().strip()
+        module_name = self.ai_module_class_var.get().strip()
 
-        if not ai_type or not module_class:
+        # اعتبارسنجی ورودی‌ها
+        if not ai_type or not module_name:
             messagebox.showerror(
                 LANGUAGES[self.settings.language]["error"],
                 LANGUAGES[self.settings.language]["fill_all_fields"]
             )
+            print(f"خطا: ai_type={ai_type}, module_name={module_name}")
             return
         if ai_type in self.ai_types:
             messagebox.showerror(
                 LANGUAGES[self.settings.language]["error"],
                 LANGUAGES[self.settings.language]["ai_type_exists"]
             )
-            return
-        if ":" not in module_class:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                "ماژول و کلاس AI معتبر انتخاب کنید"
-            )
+            print(f"خطا: ai_type '{ai_type}' قبلاً وجود دارد")
             return
 
-        module_name, class_name = module_class.split(":")
+        # پیدا کردن class_name از ai_modules
+        class_name = None
+        for module in self.ai_modules:
+            if module["display"] == module_name:
+                class_name = module.get("class_name")
+                break
+        if not class_name:
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                f"ماژول {module_name} کلاس AI معتبری ندارد"
+            )
+            print(f"خطا: class_name برای {module_name} پیدا نشد")
+            return
+
+        full_module_name = f"a.{module_name}"
+        print(f"تلاش برای بارگذاری ماژول: {full_module_name}, کلاس: {class_name}")
+
+        # بررسی وجود ماژول و کلاس
         try:
-            module = importlib.import_module(f"a.{module_name}")
+            module = importlib.import_module(full_module_name)
             if not hasattr(module, class_name):
                 messagebox.showerror(
                     LANGUAGES[self.settings.language]["error"],
                     f"کلاس {class_name} در ماژول {module_name} پیدا نشد"
                 )
+                print(f"خطا: کلاس {class_name} در {full_module_name} پیدا نشد")
                 return
         except Exception as e:
             messagebox.showerror(
                 LANGUAGES[self.settings.language]["error"],
                 f"خطا در بارگذاری ماژول {module_name}: {str(e)}"
             )
+            print(f"خطا در بارگذاری {full_module_name}: {str(e)}")
             return
 
+        # بارگذاری و به‌روزرسانی ai_config
         ai_config = load_ai_config()
         ai_config["ai_types"][ai_type] = {
-            "module": module_name,
+            "module": full_module_name,
             "class": class_name,
-            "description": description,
-            "training_params": ai_config["default_ai_params"]["training_params"],
-            "reward_weights": ai_config["default_ai_params"]["reward_weights"]
+            "description": description
         }
-        save_ai_config(ai_config)
-        self.ai_types.append(ai_type)
-        self.update_ai_dropdowns()  # به‌روزرسانی منوهای کشویی
-        self.update_ai_list()
-        messagebox.showinfo(
-            LANGUAGES[self.settings.language]["info"],
-            LANGUAGES[self.settings.language]["ai_added"]
-        )
+        try:
+            save_ai_config(ai_config)
+            print(f"AI جدید ذخیره شد: {ai_type}")
+        except Exception as e:
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                f"خطا در ذخیره AI جدید: {str(e)}"
+            )
+            print(f"خطا در ذخیره ai_config: {str(e)}")
+            return
+
+        # به‌روزرسانی self.ai_types
+        if not hasattr(self, 'ai_types') or not self.ai_types:
+            self.ai_types = ["none"]
+        if ai_type not in self.ai_types:
+            self.ai_types.append(ai_type)
+            print(f"AI {ai_type} به self.ai_types اضافه شد: {self.ai_types}")
+
+        # به‌روزرسانی رابط کاربری
+        try:
+            self.update_ai_dropdowns()
+            self.update_ai_list()
+            messagebox.showinfo(
+                LANGUAGES[self.settings.language]["info"],
+                LANGUAGES[self.settings.language]["ai_added"]
+            )
+            print(f"AI {ai_type} به منوی کشویی و لیست اضافه شد")
+        except Exception as e:
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                f"خطا در به‌روزرسانی رابط کاربری: {str(e)}"
+            )
+            print(f"خطا در به‌روزرسانی رابط کاربری: {str(e)}")
 
     def remove_selected_ai(self):
         """حذف AI انتخاب‌شده از ai_config.json"""
@@ -486,8 +585,10 @@ class SettingsWindow(BaseWindow):
             self.temp_settings.sound_enabled = value
         elif key == "player_1_ai_type":
             self.temp_settings.ai_configs["player_1"]["ai_type"] = value
+            print(f"Updated temp_settings player_1_ai_type: {value}")
         elif key == "player_2_ai_type":
             self.temp_settings.ai_configs["player_2"]["ai_type"] = value
+            print(f"Updated temp_settings player_2_ai_type: {value}")
         elif key == "ai_pause_time":
             self.temp_settings.ai_pause_time = value
 
@@ -573,44 +674,85 @@ class SettingsWindow(BaseWindow):
         """جستجوی خودکار ماژول‌های AI در دایرکتوری پروژه"""
         project_dir = Path(__file__).parent
         root_dir = project_dir.parent
+        print(f"دایرکتوری پروژه: {project_dir}")
+        print(f"ریشه پروژه: {root_dir}")
+
+        # تنظیم sys.path
+        if str(project_dir) not in sys.path:
+            sys.path.append(str(project_dir))
         if str(root_dir) not in sys.path:
             sys.path.append(str(root_dir))
+        print(f"sys.path: {sys.path}")
 
         modules = []
+        print(f"فایل‌های .py در {project_dir}: {[f.name for f in project_dir.glob('*.py')]}")
 
         for py_file in project_dir.glob("*.py"):
             module_name = py_file.stem
-            if module_name.startswith("__"):
+            if module_name.startswith("__") or module_name == "base_ai" or not module_name.isidentifier():
+                print(f"نادیده گرفتن فایل: {module_name}")
                 continue
             full_module_name = f"a.{module_name}"
+            print(f"تلاش برای بارگذاری ماژول: {full_module_name}")
+
             try:
                 module = importlib.import_module(full_module_name)
+                print(f"ماژول {full_module_name} با موفقیت بارگذاری شد")
+                found_ai_class = False
+                class_name = None
                 for name, obj in module.__dict__.items():
-                    if isinstance(obj, type) and name.endswith("AI"):
-                        try:
-                            metadata = obj.get_metadata()
-                            default_type = metadata.get("default_type", module_name)
-                            default_description = metadata.get("default_description", "")
-                            modules.append({
-                                "display": f"{module_name}:{name}",
-                                "default_type": default_type,
-                                "default_description": default_description
-                            })
-                        except AttributeError:
-                            print(f"خطا در دریافت متادیتا برای {name} در {full_module_name}")
-            except Exception as e:
-                print(f"خطا در بارگذاری ماژول {full_module_name}: {e}")
+                    if isinstance(obj, type) and name.endswith("AI") and name != "BaseAI":
+                        class_name = name
+                        found_ai_class = True
+                        break  # فقط اولین کلاس AI معتبر رو می‌گیریم
+                if not found_ai_class:
+                    print(f"هیچ کلاس AI معتبری در {full_module_name} پیدا نشد")
+                    continue
 
+                # خواندن متادیتا از AI_METADATA
+                try:
+                    metadata = getattr(module, "AI_METADATA", None)
+                    if not metadata:
+                        print(f"متادیتا در {full_module_name} پیدا نشد، استفاده از مقادیر پیش‌فرض")
+                        metadata = {
+                            "default_type": module_name,
+                            "default_description": f"هوش مصنوعی {module_name}"
+                        }
+                    default_type = metadata.get("default_type", module_name)
+                    default_description = metadata.get("default_description", f"هوش مصنوعی {module_name}")
+                    if not any(m["default_type"] == default_type for m in modules):
+                        modules.append({
+                            "display": module_name,
+                            "default_type": default_type,
+                            "default_description": default_description,
+                            "class_name": class_name
+                        })
+                        print(f"ماژول شناسایی‌شده: {module_name}, کلاس: {class_name}, متادیتا: {metadata}")
+                except Exception as e:
+                    print(f"خطا در خواندن متادیتا برای {full_module_name}: {e}")
+                    continue
+
+            except SyntaxError as e:
+                print(f"خطای سینتکس در {full_module_name}: {e} (خط {e.lineno})")
+            except ImportError as e:
+                print(f"خطا در بارگذاری ماژول {full_module_name}: {e}")
+            except Exception as e:
+                print(f"خطای غیرمنتظره در {full_module_name}: {e}")
+
+        # تنظیم منوی کشویی
         self.ai_module_class_combo["values"] = [m["display"] for m in modules] if modules else ["هیچ ماژولی پیدا نشد"]
         if modules:
             self.ai_module_class_var.set(modules[0]["display"])
             self.new_ai_type.set(modules[0]["default_type"])
             self.new_description.set(modules[0]["default_description"])
+            print(f"منوی کشویی تنظیم شد: {[m['display'] for m in modules]}")
         else:
             self.ai_module_class_var.set("")
             self.new_ai_type.set("")
             self.new_description.set("")
+            print("هیچ ماژولی برای منوی کشویی پیدا نشد")
         self.ai_modules = modules
+        print(f"ماژول‌های نهایی شناسایی‌شده: {[m['display'] for m in modules]}")
 
     def update_ai_fields(self, event=None):
         """به‌روزرسانی فیلدهای نوع و توضیحات بر اساس ماژول انتخاب‌شده"""
@@ -625,14 +767,14 @@ class SettingsWindow(BaseWindow):
             self.new_description.set("")
 
     def update_ai_list(self):
-        """به‌روزرسانی لیست AI‌های موجود"""
-        for item in self.ai_list.get_children():
-            self.ai_list.delete(item)
+        self.ai_list.delete(*self.ai_list.get_children())
         ai_config = load_ai_config()
-        for ai_type, ai_info in ai_config.get("ai_types", {}).items():
-            status = "فعال" if ai_type in [self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none"),
-                                           self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")] else "غیرفعال"
-            self.ai_list.insert("", "end", values=(ai_type, ai_info.get("description", ""), status))
+        for ai_type in self.ai_types:
+            if ai_type == "none":
+                continue
+            ai_info = ai_config["ai_types"].get(ai_type, {})
+            description = ai_info.get("description", "")
+            self.ai_list.insert("", "end", values=(ai_type, description))
 
     def setup_ai_tab(self, notebook):
         ai_frame = ttk.Frame(notebook, padding="10")
@@ -962,9 +1104,13 @@ class SettingsWindow(BaseWindow):
                                      LANGUAGES[self.settings.language]["invalid_number_hands"])
                 return
 
+            ai_config = load_ai_config()
+            print(f"save: Loaded ai_config['ai_types']: {ai_config['ai_types'].keys()}")
+
             for ai_type, var in [(self.player_1_ai_type_var.get(), "AI بازیکن ۱"),
                                  (self.player_2_ai_type_var.get(), "AI بازیکن ۲")]:
-                if ai_type != "none" and not self.check_ai_module(ai_type):
+                if ai_type != "none" and ai_type not in ai_config["ai_types"]:
+                    print(f"Error: AI type '{ai_type}' not found in ai_config['ai_types']")
                     messagebox.showerror(
                         LANGUAGES[self.settings.language]["error"],
                         f"ماژول {var} با نوع '{ai_type}' پیدا نشد"
@@ -1004,8 +1150,40 @@ class SettingsWindow(BaseWindow):
             })
             save_config(config)
 
-            ai_config = load_ai_config()
-            ai_config["ai_configs"] = self.temp_settings.ai_configs
+            # به‌روزرسانی ai_config با تنظیمات پیش‌فرض
+            ai_config["ai_configs"] = self.temp_settings.ai_configs.copy()
+            default_params = {
+                "ability_level": 5,
+                "training_params": {
+                    "memory_size": 10000,
+                    "batch_size": 128,
+                    "learning_rate": 0.001,
+                    "gamma": 0.99,
+                    "epsilon_start": 1.0,
+                    "epsilon_end": 0.01,
+                    "epsilon_decay": 0.999
+                },
+                "reward_weights": {
+                    "piece_difference": 1.0,
+                    "king_bonus": 2.0,
+                    "position_bonus": 0.1,
+                    "capture_bonus": 1.0,
+                    "multi_jump_bonus": 2.0,
+                    "king_capture_bonus": 3.0,
+                    "mobility_bonus": 0.1,
+                    "safety_penalty": -0.5
+                }
+            }
+            for player in ["player_1", "player_2"]:
+                ai_type = ai_config["ai_configs"][player]["ai_type"]
+                if ai_type != "none":
+                    ai_config["ai_configs"][player]["ability_level"] = default_params["ability_level"]
+                    ai_config["ai_configs"][player]["training_params"] = default_params["training_params"].copy()
+                    ai_config["ai_configs"][player]["reward_weights"] = default_params["reward_weights"].copy()
+                else:
+                    ai_config["ai_configs"][player]["ability_level"] = default_params["ability_level"]
+                    ai_config["ai_configs"][player]["training_params"] = {}
+                    ai_config["ai_configs"][player]["reward_weights"] = {}
             save_ai_config(ai_config)
 
             if config.get("language") != self.interface.settings.language:

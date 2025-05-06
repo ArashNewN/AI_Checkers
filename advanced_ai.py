@@ -16,7 +16,7 @@ from .progress_tracker import ProgressTracker
 # متادیتای ماژول و تنظیمات مسیر همانند کد اصلی باقی می‌ماند
 AI_METADATA = {
     "default_type": "advanced_ai",
-    "default_description": "هوش مصنوعی پیشرفته با شبکه عصبی عمیق و یادگیری تقویتی برای بازی شطرنج."
+    "default_description": "هوش مصنوعی پیشرفته با شبکه عصبی عمیق و یادگیری تقویتی."
 }
 
 project_dir = Path(__file__).parent
@@ -43,10 +43,6 @@ class AdvancedNN(nn.Module):
         )
         self.residual_block1 = nn.Sequential(
             nn.Conv2d(
-                nn_params["residual_block1_filters"],
-                nn_params["residual_block1_filters"],
-                kernel_size=nn_params["conv1_kernel_size"],
-                padding=nn10n.Conv2d(
                 nn_params["residual_block1_filters"],
                 nn_params["residual_block1_filters"],
                 kernel_size=nn_params["conv1_kernel_size"],
