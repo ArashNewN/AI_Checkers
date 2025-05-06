@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import sys
 from .base_ai import BaseAI
-from .config import load_config
+from .config import load_config, load_ai_config
 from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
 
@@ -130,7 +130,12 @@ class AdvancedAI(BaseAI):
     def __init__(self, game, color, model_name, ai_id, settings=None):
         super().__init__(game, color, model_name, ai_id, settings)
         config = load_config()
-        self.ability = min(max(int(config.get(f"{ai_id}_ability", 5)), 1), 10)
+        ai_config = load_ai_config()  # بارگذاری ai_config.json
+        player_key = "player_1" if ai_id == "ai_1" else "player_2"
+
+        # خواندن ability از ai_config.json
+        self.ability = min(max(int(ai_config["ai_configs"][player_key].get("ability_level", 5)), 1), 10)
+        self.az_id = ai_id
 
         pth_dir = Path(__file__).parent.parent / "pth"
         pth_dir.mkdir(exist_ok=True)

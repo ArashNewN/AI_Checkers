@@ -155,11 +155,11 @@ class Game:
         self.update_ai_players()
 
     def make_ai_move(self):
-
         ai = None
         target_ai_id = "ai_2" if self.turn else "ai_1"
         ai = self.ai_players.get(target_ai_id)
         if not ai:
+            print(f"No AI found for {target_ai_id}")
             return
         valid_pieces = []
         for row in range(self.board_size):
@@ -169,30 +169,36 @@ class Game:
                     moves = self.get_valid_moves(row, col)
                     if moves:
                         valid_pieces.append(((row, col), moves))
+        print(f"Valid pieces for {target_ai_id}: {valid_pieces}")
         try:
             move = ai.get_move(self.board.board)
             print(f"AI selected move: {move}")
-            if move and move[1] in moves:
-                self.last_state = self.board.board.copy()
-                self.last_action = move
-                self.selected = (row, col)
-                self.valid_moves = moves
-                if self._move(move[1][0], move[1][1]):
-                    self.move_log.append((row, col, move[1][0], move[1][1]))
-                    if len(self.move_log) > 30:
-                        self.move_log.pop(0)
-                    if self.reward_calculator:
-                        reward = self.reward_calculator.get_reward()
-                        ai.update(move, reward)
-                    if self.game_over:
-                        ai.save_model()
-                        if hasattr(ai, 'update_target_network'):
-                            ai.update_target_network()
-                    if self.settings.sound_enabled and os.path.exists('move.wav'):
-                        try:
-                            pygame.mixer.Sound('move.wav').play()
-                        except pygame.error as e:
-                            print(f"Error playing move.wav: {e}")
+            if move:
+                # پیدا کردن مهره‌ای که حرکت بهش تعلق داره
+                for (row, col), moves in valid_pieces:
+                    if move[1] in moves:
+                        self.last_state = self.board.board.copy()
+                        self.last_action = move
+                        self.selected = (row, col)
+                        self.valid_moves = moves
+                        if self._move(move[1][0], move[1][1]):
+                            self.move_log.append((row, col, move[1][0], move[1][1]))
+                            if len(self.move_log) > 30:
+                                self.move_log.pop(0)
+                            if self.reward_calculator:
+                                reward = self.reward_calculator.get_reward()
+                                ai.update(move, reward)
+                            if self.game_over:
+                                ai.save_model()
+                                if hasattr(ai, 'update_target_network'):
+                                    ai.update_target_network()
+                            if self.settings.sound_enabled and os.path.exists('move.wav'):
+                                try:
+                                    pygame.mixer.Sound('move.wav').play()
+                                except pygame.error as e:
+                                    print(f"Error playing move.wav: {e}")
+                        return  # حرکت با موفقیت انجام شد
+                print(f"Invalid move by AI: {move}")
             else:
                 print(f"Invalid move by AI: {move}")
         except Exception as e:

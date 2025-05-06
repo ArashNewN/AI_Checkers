@@ -11,7 +11,7 @@ AI_METADATA = {
 class BaseAI(ABC):
     """کلاس پایه انتزاعی برای هوش‌های مصنوعی در بازی شطرنج."""
 
-    def __init__(self, game, color: str, model_name: str, al_id: str, settings: Optional[Dict] = None):
+    def __init__(self, game, color: str, model_name: str, ai_id: str, settings: Optional[Dict] = None):
         """
         مقداردهی اولیه هوش مصنوعی پایه.
 
@@ -25,7 +25,7 @@ class BaseAI(ABC):
         self.game = game
         self.color = color
         self.model_name = model_name
-        self.al_id = al_id
+        self.ai_id = ai_id
         self.settings = settings or {}
 
     @abstractmethod

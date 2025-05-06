@@ -120,21 +120,31 @@ class CheckersGame:
     def get_legal_moves(self):
         legal_moves = []
         jumps_exist = False
+        # بررسی پرش‌ها
         for row in range(8):
             for col in range(8):
                 if (row + col) % 2 == 1 and self.board[row, col] * self.current_player > 0:
                     jumps = self._get_piece_moves(row, col, jumps_only=True)
                     if jumps:
                         jumps_exist = True
-                        legal_moves.extend(jumps)
+                        for from_idx, to_idx in jumps:
+                            from_pos = self._idx_to_row_col(from_idx)
+                            to_pos = self._idx_to_row_col(to_idx)
+                            if from_pos and to_pos:
+                                legal_moves.append((from_pos, to_pos))
         if jumps_exist:
             logger.debug(f"Legal jumps for player {self.current_player}: {legal_moves}")
             return legal_moves
+        # بررسی حرکت‌های ساده
         for row in range(8):
             for col in range(8):
                 if (row + col) % 2 == 1 and self.board[row, col] * self.current_player > 0:
                     moves = self._get_piece_moves(row, col)
-                    legal_moves.extend(moves)
+                    for from_idx, to_idx in moves:
+                        from_pos = self._idx_to_row_col(from_idx)
+                        to_pos = self._idx_to_row_col(to_idx)
+                        if from_pos and to_pos:
+                            legal_moves.append((from_pos, to_pos))
         logger.debug(f"Legal moves for player {self.current_player}: {legal_moves}")
         return legal_moves
 

@@ -217,7 +217,12 @@ class GameInterface:
         radius = self.SQUARE_SIZE // 2 - 10
         is_player_2 = piece_value < 0
         is_king = abs(piece_value) == 2
-        color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
+        base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
+
+        # سایه
+        shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
+        pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
+        screen.blit(shadow_surface, (draw_x - radius - 5, draw_y - radius - 5))
 
         piece_surface = None
         if is_player_2:
@@ -228,15 +233,62 @@ class GameInterface:
         if piece_surface is not None:
             screen.blit(piece_surface, (draw_x - radius, draw_y - radius))
         else:
-            if self.settings.piece_style == "circle":
-                pygame.draw.circle(screen, color, (draw_x, draw_y), radius)
-            elif self.settings.piece_style == "outlined_circle":
-                pygame.draw.circle(screen, color, (draw_x, draw_y), radius)
-                pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), radius, 2)
-            elif self.settings.piece_style == "square":
-                pygame.draw.rect(screen, color, (draw_x - radius // 2, draw_y - radius // 2, radius, radius))
+            gradient_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            for r in range(radius, 0, -1):
+                t = r / radius
+                color = tuple(int(c * t + 255 * (1 - t)) for c in base_color)
+                if self.settings.piece_style == "circle":
+                    pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                elif self.settings.piece_style == "outlined_circle":
+                    pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                elif self.settings.piece_style == "square":
+                    pygame.draw.rect(gradient_surface, color, (radius - r, radius - r, r * 2, r * 2))
+                elif self.settings.piece_style == "diamond":
+                    points = [(radius, radius - r), (radius + r, radius), (radius, radius + r), (radius - r, radius)]
+                    pygame.draw.polygon(gradient_surface, color, points)
+                elif self.settings.piece_style == "star":
+                    points = [
+                        (radius, radius - r),
+                        (radius + r * 0.3, radius - r * 0.3),
+                        (radius + r, radius),
+                        (radius + r * 0.3, radius + r * 0.3),
+                        (radius, radius + r),
+                        (radius - r * 0.3, radius + r * 0.3),
+                        (radius - r, radius),
+                        (radius - r * 0.3, radius - r * 0.3)
+                    ]
+                    pygame.draw.polygon(gradient_surface, color, points)
+            if self.settings.piece_style in ["outlined_circle", "diamond", "star"]:
+                if self.settings.piece_style == "outlined_circle":
+                    pygame.draw.circle(gradient_surface, self.BLACK, (radius, radius), radius, 2)
+                elif self.settings.piece_style == "diamond":
+                    points = [(radius, radius - radius), (radius + radius, radius), (radius, radius + radius),
+                              (radius - radius, radius)]
+                    pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+                elif self.settings.piece_style == "star":
+                    points = [
+                        (radius, radius - radius),
+                        (radius + radius * 0.3, radius - radius * 0.3),
+                        (radius + radius, radius),
+                        (radius + radius * 0.3, radius + radius * 0.3),
+                        (radius, radius + radius),
+                        (radius - radius * 0.3, radius + radius * 0.3),
+                        (radius - radius, radius),
+                        (radius - radius * 0.3, radius - radius * 0.3)
+                    ]
+                    pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+            # درخشش
+            shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            for r in range(radius // 2, 0, -1):
+                alpha = int(100 * (r / (radius / 2)))
+                pygame.draw.circle(shine_surface, (255, 255, 255, alpha), (radius - radius // 4, radius - radius // 4),
+                                   r)
+            gradient_surface.blit(shine_surface, (0, 0))
+            screen.blit(gradient_surface, (draw_x - radius, draw_y - radius))
             if is_king:
-                pygame.draw.circle(screen, self.GRAY, (draw_x, draw_y), radius - 10)
+                crown_radius = radius // 2
+                pygame.draw.circle(screen, self.GRAY, (draw_x, draw_y), crown_radius)
+                pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), crown_radius, 1)
 
     def animate_move(self, piece_value, start_row, start_col, end_row, end_col):
         if piece_value is None or piece_value == 0:
@@ -251,6 +303,8 @@ class GameInterface:
 
         is_player_2 = piece_value < 0
         is_king = abs(piece_value) == 2
+        base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
+
         piece_surface = None
         if is_player_2:
             piece_surface = self.player_2_king_surface if is_king else self.player_2_piece_surface
@@ -259,26 +313,76 @@ class GameInterface:
 
         for frame in range(self.ANIMATION_FRAMES + 1):
             t = frame / self.ANIMATION_FRAMES
-            current_x = start_x + (end_x - start_x) * t
-            current_y = start_y + (end_y - start_y) * t
+            current_x = start_x + (end_x - start_x) * (1 - np.cos(t * np.pi)) / 2
+            current_y = start_y + (end_y - start_y) * (1 - np.cos(t * np.pi)) / 2
             self.draw_game()
+            # سایه
+            shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
+            pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
+            self.screen.blit(shadow_surface, (current_x - radius - 5, current_y - radius - 5))
             if piece_surface is not None:
                 self.screen.blit(piece_surface, (current_x - radius, current_y - radius))
             else:
-                color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
-                if self.settings.piece_style == "circle":
-                    pygame.draw.circle(self.screen, color, (current_x, current_y), radius)
-                elif self.settings.piece_style == "outlined_circle":
-                    pygame.draw.circle(self.screen, color, (current_x, current_y), radius)
-                    pygame.draw.circle(self.screen, self.BLACK, (current_x, current_y), radius, 2)
-                elif self.settings.piece_style == "square":
-                    pygame.draw.rect(self.screen, color,
-                                    (current_x - radius // 2, current_y - radius // 2, radius, radius))
+                gradient_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                for r in range(radius, 0, -1):
+                    t_r = r / radius
+                    color = tuple(int(c * t_r + 255 * (1 - t_r)) for c in base_color)
+                    if self.settings.piece_style == "circle":
+                        pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                    elif self.settings.piece_style == "outlined_circle":
+                        pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                    elif self.settings.piece_style == "square":
+                        pygame.draw.rect(gradient_surface, color, (radius - r, radius - r, r * 2, r * 2))
+                    elif self.settings.piece_style == "diamond":
+                        points = [(radius, radius - r), (radius + r, radius), (radius, radius + r),
+                                  (radius - r, radius)]
+                        pygame.draw.polygon(gradient_surface, color, points)
+                    elif self.settings.piece_style == "star":
+                        points = [
+                            (radius, radius - r),
+                            (radius + r * 0.3, radius - r * 0.3),
+                            (radius + r, radius),
+                            (radius + r * 0.3, radius + r * 0.3),
+                            (radius, radius + r),
+                            (radius - r * 0.3, radius + r * 0.3),
+                            (radius - r, radius),
+                            (radius - r * 0.3, radius - r * 0.3)
+                        ]
+                        pygame.draw.polygon(gradient_surface, color, points)
+                if self.settings.piece_style in ["outlined_circle", "diamond", "star"]:
+                    if self.settings.piece_style == "outlined_circle":
+                        pygame.draw.circle(gradient_surface, self.BLACK, (radius, radius), radius, 2)
+                    elif self.settings.piece_style == "diamond":
+                        points = [(radius, radius - radius), (radius + radius, radius), (radius, radius + radius),
+                                  (radius - radius, radius)]
+                        pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+                    elif self.settings.piece_style == "star":
+                        points = [
+                            (radius, radius - radius),
+                            (radius + radius * 0.3, radius - radius * 0.3),
+                            (radius + radius, radius),
+                            (radius + radius * 0.3, radius + radius * 0.3),
+                            (radius, radius + radius),
+                            (radius - radius * 0.3, radius + radius * 0.3),
+                            (radius - radius, radius),
+                            (radius - radius * 0.3, radius - radius * 0.3)
+                        ]
+                        pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+                # درخشش
+                shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                for r in range(radius // 2, 0, -1):
+                    alpha = int(100 * (r / (radius / 2)))
+                    pygame.draw.circle(shine_surface, (255, 255, 255, alpha),
+                                       (radius - radius // 4, radius - radius // 4), r)
+                gradient_surface.blit(shine_surface, (0, 0))
+                self.screen.blit(gradient_surface, (current_x - radius, current_y - radius))
                 if is_king:
-                    pygame.draw.circle(self.screen, self.GRAY, (current_x, current_y), radius - 10)
+                    crown_radius = radius // 2
+                    pygame.draw.circle(self.screen, self.GRAY, (current_x, current_y), crown_radius)
+                    pygame.draw.circle(self.screen, self.BLACK, (current_x, current_y), crown_radius, 1)
             self.game.draw_valid_moves()
             pygame.display.update()
-            pygame.time.wt(25)
+            pygame.time.wait(20)
 
     def draw_default_image(self, name, x, y):
         surface = pygame.Surface((self.PLAYER_IMAGE_SIZE, self.PLAYER_IMAGE_SIZE), pygame.SRCALPHA)
@@ -336,7 +440,7 @@ class GameInterface:
             elif not self.game.winner:
                 result_text = LANGUAGES[self.settings.language]["player_wins"]
             else:
-                result_text = LANGUAGES[self.settings.language]["_wins"]
+                result_text = LANGUAGES[self.settings.language]["player_wins"]
             result_display = self.small_font.render(result_text, True, self.BLACK)
             result_display_rect = result_display.get_rect(
                 center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y))

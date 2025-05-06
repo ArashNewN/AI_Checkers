@@ -13,8 +13,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ProgressTracker:
-    def __init__(self, al_id):
-        self.al_id = al_id  # ذخیره al_id برای شناسایی AI خاص
+    def __init__(self, ai_id):
+        self.al_id = ai_id  # ذخیره al_id برای شناسایی AI خاص
         # تعیین مسیر پوشه log
         current_dir = os.path.abspath(os.getcwd())  # مسیر فعلی
         parent_dir = os.path.abspath(os.path.join(current_dir, os.pardir))  # پوشه بالاتر

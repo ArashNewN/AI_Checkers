@@ -667,8 +667,96 @@ class SettingsWindow(BaseWindow):
         ttk.Label(piece_style_container, text=LANGUAGES[self.settings.language]["piece_style"]).pack(side="left",
                                                                                                      padx=5)
         self.piece_style_var = tk.StringVar(value=self.temp_settings.piece_style)
+        piece_styles = ["circle", "outlined_circle", "square", "diamond", "star", "custom"]
         ttk.OptionMenu(piece_style_container, self.piece_style_var, self.temp_settings.piece_style,
-                       *["classic", "modern", "custom"]).pack(side="left", fill="x", expand=True, padx=5)
+                       *piece_styles,
+                       command=lambda _: self.update_temp_settings("piece_style", self.piece_style_var.get())).pack(
+            side="left", fill="x", expand=True, padx=5)
+
+        # پیش‌نمایش استایل مهره
+        preview_container = ttk.Frame(design_frame)
+        preview_container.pack(fill="x", pady=5)
+        ttk.Label(preview_container, text="Piece Preview").pack(side="left", padx=5)
+        self.preview_canvas = tk.Canvas(preview_container, width=50, height=50, bg="white")
+        self.preview_canvas.pack(side="left", padx=5)
+        self.update_piece_preview()
+
+        # تصاویر سفارشی
+        images_container = ttk.Frame(design_frame)
+        images_container.pack(fill="x", pady=5)
+        ttk.Label(images_container, text=LANGUAGES[self.settings.language]["piece_images"]).pack(side="left", padx=5)
+
+        for piece in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
+            container = ttk.Frame(design_frame)
+            container.pack(fill="x", pady=2)
+            ttk.Label(container, text=LANGUAGES[self.settings.language][piece]).pack(side="left", padx=5)
+            var = tk.StringVar(value=getattr(self.temp_settings, f"{piece}_image"))
+            entry = ttk.Entry(container, textvariable=var)
+            entry.pack(side="left", fill="x", expand=True, padx=5)
+            ttk.Button(container, text=LANGUAGES[self.settings.language]["upload_image"],
+                       command=lambda p=piece, v=var: self.upload_image(p, v)).pack(side="left", padx=5)
+            self.entries[piece] = var
+
+    def update_piece_preview(self):
+        self.preview_canvas.delete("all")
+        style = self.piece_style_var.get()
+        color = hex_to_rgb(self.player_1_color_var.get())
+        center_x, center_y = 25, 25
+        radius = 20
+
+        if style == "circle":
+            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
+                                            center_x + radius, center_y + radius,
+                                            fill=rgb_to_hex(color))
+        elif style == "outlined_circle":
+            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
+                                            center_x + radius, center_y + radius,
+                                            fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "square":
+            self.preview_canvas.create_rectangle(center_x - radius, center_y - radius,
+                                                 center_x + radius, center_y + radius,
+                                                 fill=rgb_to_hex(color))
+        elif style == "diamond":
+            points = [
+                center_x, center_y - radius,
+                          center_x + radius, center_y,
+                center_x, center_y + radius,
+                          center_x - radius, center_y
+            ]
+            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "star":
+            points = [
+                center_x, center_y - radius,
+                          center_x + radius * 0.3, center_y - radius * 0.3,
+                          center_x + radius, center_y,
+                          center_x + radius * 0.3, center_y + radius * 0.3,
+                center_x, center_y + radius,
+                          center_x - radius * 0.3, center_y + radius * 0.3,
+                          center_x - radius, center_y,
+                          center_x - radius * 0.3, center_y - radius * 0.3
+            ]
+            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "custom":
+            self.preview_canvas.create_text(center_x, center_y, text="Custom", fill="black")
+
+    def upload_image(self, piece, var):
+        from tkinter import filedialog
+        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
+        if file_path:
+            var.set(file_path)
+            self.update_temp_settings(f"{piece}_image", file_path)
+
+    def save(self):
+        self.temp_settings.player_1_color = hex_to_rgb(self.player_1_color_var.get())
+        self.temp_settings.player_2_color = hex_to_rgb(self.player_2_color_var.get())
+        self.temp_settings.board_color_1 = hex_to_rgb(self.board_color_1_var.get())
+        self.temp_settings.board_color_2 = hex_to_rgb(self.board_color_2_var.get())
+        self.temp_settings.piece_style = self.piece_style_var.get()
+        self.temp_settings.sound_enabled = self.sound_var.get()
+        for piece in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
+            setattr(self.temp_settings, f"{piece}_image", self.entries[piece].get())
+        self.interface.apply_pending_settings(self.temp_settings.__dict__)
+        self.close()
 
     def search_ai_modules(self):
         """جستجوی خودکار ماژول‌های AI در دایرکتوری پروژه"""
