@@ -110,6 +110,23 @@ def load_config():
         "advanced_config_window_width": 500,
         "advanced_config_window_height": 600,
         "game_version": "1.0",
+        # تنظیمات جدید برای Hint
+        "hint_enabled_p1_default": False,
+        "hint_enabled_p2_default": False,
+        "hint_circle_color": [255, 165, 0],  # نارنجی
+        "hint_circle_radius": 10,
+        "hint_blink_interval": 500,  # میلی‌ثانیه
+        "hint_button_width": 120,
+        "hint_button_height": 40,
+        "hint_button_spacing": 10,
+        "hint_button_y_offset": 10,
+        # تنظیمات جدید برای Undo/Redo
+        "undo_button_width": 120,
+        "undo_button_height": 40,
+        "redo_button_width": 120,
+        "redo_button_height": 40,
+        "undo_redo_button_spacing": 10,
+        "undo_redo_y_offset": 10,
         # رنگ‌ها
         "black": [0, 0, 0],
         "white": [255, 255, 255],

@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import sys
 
-# وارد کردن‌ها با فرض دایرکتوری ماژول
 from .base_ai import BaseAI
 from .config import load_ai_config, load_ai_specific_config
 from .rewards import RewardCalculator
@@ -153,7 +152,7 @@ class AdvancedAI(BaseAI):
         self.reward_calculator.game = game
 
     def get_move(self, board):
-        print(f"AdvancedAI.get_move called for {self.ai_id} (color: {self.color})")
+        print(f"AdvancedAI.get_move called for {self.ai_id} (player_number: {1 if self.ai_id == 'ai_1' else 2})")
         valid_moves = self.get_valid_moves(board)
         print(f"Valid moves: {valid_moves}")
         if not valid_moves:
@@ -177,11 +176,15 @@ class AdvancedAI(BaseAI):
         ai_config = load_ai_config()
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
         board_size = ai_config["ai_configs"][player_key]["params"]["network_params"].get("board_size", 8)
-        print(f"Getting valid moves for {self.ai_id} (color: {self.color}) with board shape: {board.shape}")
+        player_number = 1 if self.ai_id == "ai_1" else 2  # ai_1 -> بازیکن 1، ai_2 -> بازیکن 2
+        print(f"Getting valid moves for {self.ai_id} (player_number: {player_number}) with board shape: {board.shape}")
+
         for row in range(board_size):
             for col in range(board_size):
                 piece = board[row, col]
-                if piece != 0 and ((piece < 0) == (self.color == "black")):
+                if piece != 0 and (
+                        (piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)
+                ):
                     print(f"Checking piece at ({row}, {col}): {piece}")
                     moves = self.game.get_valid_moves(row, col)
                     print(f"Moves for ({row}, {col}): {moves}")
@@ -189,6 +192,7 @@ class AdvancedAI(BaseAI):
                         for move, skipped in moves.items():
                             valid_moves[((row, col), move)] = skipped
                         print(f"Added moves for ({row}, {col}): {valid_moves}")
+
         print(f"Final valid moves: {valid_moves}")
         return valid_moves
 

@@ -18,9 +18,11 @@ class Button:
         self.color = color
         self.text = text
         self.font = pygame.font.SysFont('Vazir' if 'Vazir' in pygame.font.get_fonts() else 'Arial', 16)
+        self.enabled = True  # اضافه کردن ویژگی enabled
 
     def draw(self, screen):
-        pygame.draw.rect(screen, self.color, self.rect, border_radius=5)
+        color = self.color if self.enabled else (self.color[0] // 2, self.color[1] // 2, self.color[2] // 2)
+        pygame.draw.rect(screen, color, self.rect, border_radius=5)
         pygame.draw.rect(screen, (0, 0, 0), self.rect, 2, border_radius=5)
         text_surface = self.font.render(self.text, True, (0, 0, 0))
         text_rect = text_surface.get_rect(center=self.rect.center)
@@ -43,9 +45,6 @@ class GameInterface:
         self.BORDER_THICKNESS = self.config['border_thickness']
         self.SQUARE_SIZE = self.config['square_size']
         self.BUTTON_SPACING_FROM_BOTTOM = self.config['button_spacing_from_bottom']
-        self.ANIMATION_FRAMES = 30
-        print("Animation Frames:", self.ANIMATION_FRAMES)
-        print("Animation Frames:", self.config['animation_frames'])
         self.PLAYER_IMAGE_SIZE = self.config['player_image_size']
         self.BLACK = (0, 0, 0)
         self.LIGHT_GRAY = (200, 200, 200)
@@ -95,6 +94,14 @@ class GameInterface:
         self.load_player_images()
         self.load_piece_images()
         self._move_start_time = None
+        self.hint_enabled_p1 = self.config['hint_enabled_p1_default']
+        self.hint_enabled_p2 = self.config['hint_enabled_p2_default']
+        self.hint_buttons = []
+        self.hint_blink_timer = 0
+        self.hint_blink_state = True
+        self.move_history = []
+        self.redo_stack = []
+        self.undo_buttons = []
 
     def apply_pending_settings(self):
         if self.pending_settings:
@@ -295,8 +302,10 @@ class GameInterface:
                 pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), crown_radius, 1)
 
     def animate_move(self, piece_value, start_row, start_col, end_row, end_col):
-        print("Attempting to animate piece:", piece_value)
-        if piece_value is None or piece_value == 0:
+        print("Attempting to animate move from", (start_row, start_col), "to", (end_row, end_col))
+        # استخراج piece_value از تخته
+        piece_value = self.game.board.board[start_row, start_col]
+        if piece_value == 0:
             print("Invalid piece_value! Animation aborted.")
             return
         start_x = start_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
@@ -431,15 +440,22 @@ class GameInterface:
         self.screen.blit(footer_text, footer_rect)
 
     def draw_side_panel(self):
-        panel_rect = pygame.Rect(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2, self.MENU_HEIGHT, self.PANEL_WIDTH,
-                                self.WINDOW_HEIGHT - self.MENU_HEIGHT - 30)
+        panel_rect = pygame.Rect(
+            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,
+            self.MENU_HEIGHT,
+            self.PANEL_WIDTH,
+            self.WINDOW_HEIGHT - self.MENU_HEIGHT - 30
+        )
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, panel_rect)
         y = self.MENU_HEIGHT + 20
+
         result_title = self.font.render(LANGUAGES[self.settings.language]["game_result"], True, self.BLACK)
         result_rect = result_title.get_rect(
-            center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y))
+            center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y)
+        )
         self.screen.blit(result_title, result_rect)
         y += 40
+
         if self.game.game_over:
             if self.game.winner is None:
                 result_text = "بازی مساوی شد" if self.settings.language == "fa" else "Game is a Draw"
@@ -449,52 +465,89 @@ class GameInterface:
                 result_text = LANGUAGES[self.settings.language]["player_wins"]
             result_display = self.small_font.render(result_text, True, self.BLACK)
             result_display_rect = result_display.get_rect(
-                center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y))
+                center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y)
+            )
             self.screen.blit(result_display, result_display_rect)
-        y += 80
+        y +=70
 
-        player_1_name = self.settings.player_1_name if self.settings.game_mode in ["human_vs_human",
-                                                                                  "human_vs_"] else self.settings.al1_name
-        player_2_name = self.settings.player_2_name if self.settings.game_mode == "human_vs_human" else self.settings.al2_name
+        player_1_name = (
+            self.settings.player_1_name
+            if self.settings.game_mode in ["human_vs_human", "human_vs_ai"]
+            else self.settings.al1_name
+        )
+        player_2_name = (
+            self.settings.player_2_name
+            if self.settings.game_mode == "human_vs_human"
+            else self.settings.al2_name
+        )
 
         if self.player_1_image_surface:
-            self.screen.blit(self.player_1_image_surface, (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y))
+            self.screen.blit(
+                self.player_1_image_surface,
+                (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y)
+            )
         else:
-            self.draw_default_image(player_1_name, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y)
+            self.draw_default_image(
+                player_1_name, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y
+            )
 
         vs_font = pygame.font.SysFont('Arial', 24, bold=True)
         vs_text = vs_font.render("vs", True, self.BLUE)
         vs_text.set_alpha(200)
         vs_rect = vs_text.get_rect(
-            center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y + self.PLAYER_IMAGE_SIZE // 2))
-        pygame.draw.rect(self.screen, self.LIGHT_GRAY,
-                        (vs_rect.x - 5, vs_rect.y - 5, vs_rect.width + 10, vs_rect.height + 10), border_radius=5)
+            center=(
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2,
+                y + self.PLAYER_IMAGE_SIZE // 2
+            )
+        )
+        pygame.draw.rect(
+            self.screen, self.LIGHT_GRAY,
+            (vs_rect.x - 5, vs_rect.y - 5, vs_rect.width + 10, vs_rect.height + 10),
+            border_radius=5
+        )
         self.screen.blit(vs_text, vs_rect)
 
         if self.player_2_image_surface:
-            self.screen.blit(self.player_2_image_surface,
-                            (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE, y))
+            self.screen.blit(
+                self.player_2_image_surface,
+                (
+                    self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE,
+                    y
+                )
+            )
         else:
-            self.draw_default_image(player_2_name,
-                                    self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE, y)
+            self.draw_default_image(
+                player_2_name,
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE,
+                y
+            )
 
-        y += 15
+
+        y += 10
 
         player_1_name_text = self.small_font.render(player_1_name, True, self.BLACK)
         player_1_name_rect = player_1_name_text.get_rect(
-            center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20 + self.PLAYER_IMAGE_SIZE // 2,
-                    y + self.PLAYER_IMAGE_SIZE + 10))
+            center=(
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20 + self.PLAYER_IMAGE_SIZE // 2,
+                y + self.PLAYER_IMAGE_SIZE + 10
+            )
+        )
         self.screen.blit(player_1_name_text, player_1_name_rect)
 
         player_2_name_text = self.small_font.render(player_2_name, True, self.BLACK)
-        player_2_name_rect = player_2_name_text.get_rect(center=(
-            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE // 2,
-            y + self.PLAYER_IMAGE_SIZE + 10))
+        player_2_name_rect = player_2_name_text.get_rect(
+            center=(
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE // 2,
+                y + self.PLAYER_IMAGE_SIZE + 10
+            )
+        )
         self.screen.blit(player_2_name_text, player_2_name_rect)
 
-        y += self.PLAYER_IMAGE_SIZE + 50
+        y += self.PLAYER_IMAGE_SIZE + 30
 
-        table_rect = pygame.Rect(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, self.PANEL_WIDTH - 40, 80)
+        table_rect = pygame.Rect(
+            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, self.PANEL_WIDTH - 40, 80
+        )
         shadow_rect = pygame.Rect(table_rect.x + 5, table_rect.y + 5, table_rect.width, table_rect.height)
         pygame.draw.rect(self.screen, (100, 100, 100), shadow_rect, border_radius=10)
 
@@ -508,44 +561,59 @@ class GameInterface:
         self.screen.blit(gradient_surface, (table_rect.x, table_rect.y))
 
         pygame.draw.rect(self.screen, self.BLACK, table_rect, 2, border_radius=10)
-        pygame.draw.line(self.screen, self.BLACK, (table_rect.x + table_rect.width // 3, table_rect.y),
-                        (table_rect.x + table_rect.width // 3, table_rect.y + table_rect.height), 2)
-        pygame.draw.line(self.screen, self.BLACK, (table_rect.x + 2 * table_rect.width // 3, table_rect.y),
-                        (table_rect.x + 2 * table_rect.width // 3, table_rect.y + table_rect.height), 2)
-        pygame.draw.line(self.screen, self.BLACK, (table_rect.x, table_rect.y + table_rect.height // 2),
-                        (table_rect.x + table_rect.width, table_rect.y + table_rect.height // 2), 2)
+        pygame.draw.line(
+            self.screen, self.BLACK,
+            (table_rect.x + table_rect.width // 3, table_rect.y),
+            (table_rect.x + table_rect.width // 3, table_rect.y + table_rect.height), 2
+        )
+        pygame.draw.line(
+            self.screen, self.BLACK,
+            (table_rect.x + 2 * table_rect.width // 3, table_rect.y),
+            (table_rect.x + 2 * table_rect.width // 3, table_rect.y + table_rect.height), 2
+        )
+        pygame.draw.line(
+            self.screen, self.BLACK,
+            (table_rect.x, table_rect.y + table_rect.height // 2),
+            (table_rect.x + table_rect.width, table_rect.y + table_rect.height // 2), 2
+        )
 
         wins_1 = self.small_font.render(str(self.game.player_1_wins), True, self.BLACK)
         wins_1_rect = wins_1.get_rect(
-            center=(table_rect.x + table_rect.width // 6, table_rect.y + table_rect.height // 4))
+            center=(table_rect.x + table_rect.width // 6, table_rect.y + table_rect.height // 4)
+        )
         self.screen.blit(wins_1, wins_1_rect)
 
         wins_text = self.small_font.render(LANGUAGES[self.settings.language]["wins"], True, self.BLACK)
         wins_text_rect = wins_text.get_rect(
-            center=(table_rect.x + table_rect.width // 2, table_rect.y + table_rect.height // 4))
+            center=(table_rect.x + table_rect.width // 2, table_rect.y + table_rect.height // 4)
+        )
         self.screen.blit(wins_text, wins_text_rect)
 
         wins_2 = self.small_font.render(str(self.game.player_2_wins), True, self.BLACK)
         wins_2_rect = wins_2.get_rect(
-            center=(table_rect.x + 5 * table_rect.width // 6, table_rect.y + table_rect.height // 4))
+            center=(table_rect.x + 5 * table_rect.width // 6, table_rect.y + table_rect.height // 4)
+        )
         self.screen.blit(wins_2, wins_2_rect)
 
         pieces_1 = self.small_font.render(str(self.game.board.player_1_left), True, self.BLACK)
         pieces_1_rect = pieces_1.get_rect(
-            center=(table_rect.x + table_rect.width // 6, table_rect.y + 3 * table_rect.height // 4))
+            center=(table_rect.x + table_rect.width // 6, table_rect.y + 3 * table_rect.height // 4)
+        )
         self.screen.blit(pieces_1, pieces_1_rect)
 
         pieces_text = self.small_font.render(LANGUAGES[self.settings.language]["pieces"], True, self.BLACK)
         pieces_text_rect = pieces_text.get_rect(
-            center=(table_rect.x + table_rect.width // 2, table_rect.y + 3 * table_rect.height // 4))
+            center=(table_rect.x + table_rect.width // 2, table_rect.y + 3 * table_rect.height // 4)
+        )
         self.screen.blit(pieces_text, pieces_text_rect)
 
         pieces_2 = self.small_font.render(str(self.game.board.player_2_left), True, self.BLACK)
         pieces_2_rect = pieces_2.get_rect(
-            center=(table_rect.x + 5 * table_rect.width // 6, table_rect.y + 3 * table_rect.height // 4))
+            center=(table_rect.x + 5 * table_rect.width // 6, table_rect.y + 3 * table_rect.height // 4)
+        )
         self.screen.blit(pieces_2, pieces_2_rect)
 
-        y += 100
+        y += 110
 
         time_title = self.small_font.render(LANGUAGES[self.settings.language]["time"], True, self.BLACK)
         time_title_rect = time_title.get_rect(
@@ -573,7 +641,8 @@ class GameInterface:
         player_1_time = self.game.timer.get_current_time(False)
         player_2_time = self.game.timer.get_current_time(True)
         timer_1 = bold_font.render(f"{int(player_1_time)} s", True, self.BLACK if not self.game.turn else self.GRAY)
-        timer_1_rect = timer_1.get_rect(center=(timer_rect.x + timer_rect.width // 4, timer_rect.y + timer_rect.height // 2))
+        timer_1_rect = timer_1.get_rect(
+            center=(timer_rect.x + timer_rect.width // 4, timer_rect.y + timer_rect.height // 2))
         self.screen.blit(timer_1, timer_1_rect)
 
         timer_2 = bold_font.render(f"{int(player_2_time)} s", True, self.BLACK if self.game.turn else self.GRAY)
@@ -581,7 +650,73 @@ class GameInterface:
             center=(timer_rect.x + 3 * timer_rect.width // 4, timer_rect.y + timer_rect.height // 2))
         self.screen.blit(timer_2, timer_2_rect)
 
-        y += 50
+        y += 60
+
+        # دکمه‌های Undo و Redo
+        undo_button_x = (
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
+                (self.PANEL_WIDTH - 2 * self.config['undo_button_width'] - self.config['undo_redo_button_spacing']) // 2
+        )
+        undo_button_y = y + self.config['undo_redo_y_offset']
+
+        undo_button = Button(
+            undo_button_x, undo_button_y, self.config['undo_button_width'], self.config['undo_button_height'],
+            LANGUAGES[self.settings.language]["undo"], self.SKY_BLUE
+        )
+        undo_button.enabled = len(self.move_history) >= 2
+
+        redo_button = Button(
+            undo_button_x + self.config['undo_button_width'] + self.config['undo_redo_button_spacing'], undo_button_y,
+            self.config['redo_button_width'], self.config['redo_button_height'],
+            LANGUAGES[self.settings.language]["redo"], self.SKY_BLUE
+        )
+        redo_button.enabled = len(self.redo_stack) > 0
+
+        self.undo_buttons = [undo_button, redo_button]
+        for button in self.undo_buttons:
+            button.draw(self.screen)
+
+        y += self.config['undo_button_height'] + self.config['undo_redo_y_offset'] + 10
+
+        # دکمه‌های Hint
+        hint_button_x = (
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
+                (self.PANEL_WIDTH - 2 * self.config['hint_button_width'] - self.config['hint_button_spacing']) // 2
+        )
+        hint_button_y = y + self.config['hint_button_y_offset']
+
+        p1_hint_text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p1 else "hint_off"]
+        p1_hint_button = Button(
+            hint_button_x, hint_button_y, self.config['hint_button_width'], self.config['hint_button_height'],
+            p1_hint_text, self.SKY_BLUE
+        )
+
+        p2_hint_text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p2 else "hint_off"]
+        p2_hint_button = Button(
+            hint_button_x + self.config['hint_button_width'] + self.config['hint_button_spacing'], hint_button_y,
+            self.config['hint_button_width'], self.config['hint_button_height'],
+            p2_hint_text, self.SKY_BLUE
+        )
+
+        self.hint_buttons = [p1_hint_button, p2_hint_button]
+
+        if self.settings.game_mode == "human_vs_ai" and not self.game.turn:
+            p1_hint_button.enabled = True
+            p2_hint_button.enabled = False
+        elif self.settings.game_mode == "human_vs_ai" and self.game.turn:
+            p1_hint_button.enabled = False
+            p2_hint_button.enabled = True
+        elif self.settings.game_mode == "human_vs_human":
+            p1_hint_button.enabled = True
+            p2_hint_button.enabled = True
+        else:
+            p1_hint_button.enabled = False
+            p2_hint_button.enabled = False
+
+        for button in self.hint_buttons:
+            button.draw(self.screen)
+
+        y += self.config['hint_button_height'] + self.config['hint_button_y_offset'] + 10
 
         self.new_game_button.draw(self.screen)
         self.reset_scores_button.draw(self.screen)
@@ -673,6 +808,21 @@ class GameInterface:
                         self.game.player_2_wins = 0
                         save_stats({"player_1_wins": 0, "player_2_wins": 0})
                 elif self.game.game_started:
+                    # مدیریت کلیک روی دکمه‌های Undo و Redo
+                    for button in self.undo_buttons:
+                        if hasattr(button, 'enabled') and button.enabled and button.is_clicked(pos):
+                            if button.text == LANGUAGES[self.settings.language]["undo"]:
+                                self.undo_move()
+                            elif button.text == LANGUAGES[self.settings.language]["redo"]:
+                                self.redo_move()
+                    # مدیریت کلیک روی دکمه‌های Hint
+                    for button in self.hint_buttons:
+                        if hasattr(button, 'enabled') and button.enabled and button.is_clicked(pos):
+                            if button == self.hint_buttons[0]:
+                                self.toggle_hint_p1()
+                            elif button == self.hint_buttons[1]:
+                                self.toggle_hint_p2()
+                    # مدیریت کلیک روی تخته
                     print("Handling board click")
                     self.game.handle_click(pos)
         return True
@@ -758,21 +908,131 @@ class GameInterface:
         except tk.TclError:
             pass
 
+    def undo_move(self):
+        if not self.move_history:
+            print("[undo_move] No moves to undo")
+            return
+
+        # بازگرداندن یک حرکت
+        board_state, turn, valid_moves, player_1_left, player_2_left = self.move_history.pop()
+        self.game.board.board = board_state.copy()
+        self.game.turn = turn
+        self.game.board.valid_moves = valid_moves
+        self.game.board.player_1_left = player_1_left
+        self.game.board.player_2_left = player_2_left
+        self.redo_stack.append((board_state.copy(), turn, valid_moves, player_1_left, player_2_left))
+        self.game.draw_valid_moves()
+        print("[undo_move] Move undone")
+
+    def redo_move(self):
+        if not self.redo_stack:
+            print("[redo_move] No moves to redo")
+            return
+
+        # اعمال یک حرکت
+        board_state, turn, valid_moves, player_1_left, player_2_left = self.redo_stack.pop()
+        self.move_history.append((board_state.copy(), turn, valid_moves, player_1_left, player_2_left))
+        self.game.board.board = board_state.copy()
+        self.game.turn = turn
+        self.game.board.valid_moves = valid_moves
+        self.game.board.player_1_left = player_1_left
+        self.game.board.player_2_left = player_2_left
+        self.game.draw_valid_moves()
+        print("[redo_move] Move redone")
+
+    def toggle_hint_p1(self):
+        self.hint_enabled_p1 = not self.hint_enabled_p1
+        self.hint_buttons[0].text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p1 else "hint_off"]
+
+    def toggle_hint_p2(self):
+        self.hint_enabled_p2 = not self.hint_enabled_p2
+        self.hint_buttons[1].text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p2 else "hint_off"]
+
+    def get_hint(self):
+        if not self.game.game_started or self.game.game_over:
+            return None
+
+        # محاسبه حرکات معتبر برای نوبت فعلی
+        valid_moves = {}
+        board_size = self.game.board_size
+        player_number = 2 if self.game.turn else 1  # False -> بازیکن 1، True -> بازیکن 2
+
+        for row in range(board_size):
+            for col in range(board_size):
+                piece = self.game.board.board[row, col]
+                # بررسی اینکه مهره متعلق به بازیکن فعلی است
+                if piece != 0 and (
+                        (piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)
+                ):
+                    moves = self.game.get_valid_moves(row, col)
+                    if moves:
+                        for move, skipped in moves.items():
+                            valid_moves[((row, col), move)] = skipped
+
+        if not valid_moves:
+            return None
+
+        # انتخاب اولین حرکت معتبر به‌عنوان Hint
+        return list(valid_moves.keys())[0]
+
+    def draw_hint(self, hint):
+        if hint is None or not (self.hint_enabled_p1 and not self.game.turn or self.hint_enabled_p2 and self.game.turn):
+            return
+
+        current_time = pygame.time.get_ticks()
+        if current_time - self.hint_blink_timer > self.config['hint_blink_interval']:
+            self.hint_blink_state = not self.hint_blink_state
+            self.hint_blink_timer = current_time
+
+        if not self.hint_blink_state:
+            return
+
+        start_row, start_col = hint[0]
+        end_row, end_col = hint[1]
+
+        start_x = start_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
+        start_y = start_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
+        end_x = end_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
+        end_y = end_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
+
+        pygame.draw.circle(self.screen, self.config['hint_circle_color'], (start_x, start_y),
+                           self.config['hint_circle_radius'])
+        pygame.draw.circle(self.screen, self.config['hint_circle_color'], (end_x, end_y),
+                           self.config['hint_circle_radius'])
+
     def run(self):
         settings_window = SettingsWindow(self, self.root)
         al_progress_window = ALProgressWindow(self, self.root)
         az_progress_window = AZProgressWindow(self, self.root)
         help_window = HelpWindow(self, self.root)
         about_window = AboutWindow(self, self.root)
+
+        clock = pygame.time.Clock()
+
         running = True
         while running:
             running = self._handle_events(settings_window, al_progress_window, az_progress_window, help_window,
                                           about_window)
+
             self.update()
+
+            self.screen.fill(self.settings.board_color_1)
+            self.draw_game()
+
+            if self.settings.game_mode in ["human_vs_human", "human_vs_ai"] and (
+                    self.hint_enabled_p1 or self.hint_enabled_p2):
+                hint = self.get_hint()
+                self.draw_hint(hint)
+
+            pygame.display.flip()
+
             try:
                 self.root.update()
             except tk.TclError:
                 running = False
+
+            clock.tick(self.config.get('fps', 60))
+
         self.close_windows(settings_window, al_progress_window, az_progress_window, help_window, about_window)
         pygame.quit()
         sys.exit()

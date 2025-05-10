@@ -15,12 +15,12 @@ SQUARE_SIZE = 80
 BOARD_SIZE = 8
 BORDER_THICKNESS = 7
 MENU_HEIGHT = 30
-WINDOW_WIDTH = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 2 + 300
+WINDOW_WIDTH = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 2 + 310
 BOARD_WIDTH = BOARD_SIZE * SQUARE_SIZE
-WINDOW_HEIGHT = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 3 + 60
+WINDOW_HEIGHT = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 3 + 10
 PANEL_WIDTH = 300
 BUTTON_SPACING_FROM_BOTTOM = 40
-ANIMATION_FRAMES = 1
+ANIMATION_FRAMES = 15
 PLAYER_IMAGE_SIZE = int(PANEL_WIDTH * 0.25)
 GAME_VERSION = "1.0"
 
@@ -177,11 +177,19 @@ LANGUAGES = {
         "ai_players": "ai_players",
         "no_ai_selected": "No AI selected",
         "sound_enabled": "sound_enabled",
+        "hint_on": "Hint On",
+        "hint_off": "Hint Off",
+        "undo": "Undo",
+        "redo": "Redo",
         "invalid_input": "Invalid input. Please enter a valid value.",
     },
     "fa": {
         "piece_images": "تصاویر مهره‌ها",
         "sound_enabled": "sound_enabled",
+        "hint_on": "راهنمایی روشن",
+        "hint_off": "راهنمایی خاموش",
+        "undo": "بازگشت",
+        "redo": "بازگرداندن",
         "confirm_reset": "confirm_resetl",
         "player_1_piece": "مهره بازیکن ۱",
         "player_1_king": "شاه بازیکن ۱",
