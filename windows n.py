@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
 from .game import Game
 from .settings import GameSettings
-from .config import save_config, load_config, load_ai_config, LANGUAGES
+from .config import save_config, load_config, load_ai_config
+from .constants import LANGUAGES
 from .utils import hex_to_rgb, rgb_to_hex
 import os
 import json

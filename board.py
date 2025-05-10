@@ -7,7 +7,7 @@ from .config import load_config
 class Board:
     def __init__(self, settings):
         config = load_config()
-        self.board_size = config["network_params"]["board_size"]
+        self.board_size = config["board_size"]  # خواندن از config["board_size"]
         self.settings = settings
         self.board = np.zeros((self.board_size, self.board_size), dtype=np.int8)
         initial_rows = self.board_size // 2 - 1

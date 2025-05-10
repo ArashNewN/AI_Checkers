@@ -3,7 +3,8 @@ import os
 import numpy as np
 from .game import Game
 from .windows import SettingsWindow, ALProgressWindow, AZProgressWindow, HelpWindow, AboutWindow
-from .config import load_config, LANGUAGES
+from .config import load_config
+from .constants import LANGUAGES
 from .utils import hex_to_rgb
 import tkinter as tk
 from tkinter import messagebox
@@ -33,6 +34,7 @@ class GameInterface:
     def __init__(self, settings):
         self.settings = settings
         self.config = load_config()
+        print("Config Data:", self.config)
         self.WINDOW_WIDTH = self.config['window_width']
         self.WINDOW_HEIGHT = self.config['window_height']
         self.BOARD_WIDTH = self.config['board_width']
@@ -41,7 +43,9 @@ class GameInterface:
         self.BORDER_THICKNESS = self.config['border_thickness']
         self.SQUARE_SIZE = self.config['square_size']
         self.BUTTON_SPACING_FROM_BOTTOM = self.config['button_spacing_from_bottom']
-        self.ANIMATION_FRAMES = self.config['animation_frames']
+        self.ANIMATION_FRAMES = 30
+        print("Animation Frames:", self.ANIMATION_FRAMES)
+        print("Animation Frames:", self.config['animation_frames'])
         self.PLAYER_IMAGE_SIZE = self.config['player_image_size']
         self.BLACK = (0, 0, 0)
         self.LIGHT_GRAY = (200, 200, 200)
@@ -291,9 +295,9 @@ class GameInterface:
                 pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), crown_radius, 1)
 
     def animate_move(self, piece_value, start_row, start_col, end_row, end_col):
+        print("Attempting to animate piece:", piece_value)
         if piece_value is None or piece_value == 0:
-            print(
-                f"Warning: Invalid piece_value {piece_value} for move from ({start_row}, {start_col}) to ({end_row}, {end_col})")
+            print("Invalid piece_value! Animation aborted.")
             return
         start_x = start_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
         start_y = start_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
@@ -395,6 +399,7 @@ class GameInterface:
         self.screen.blit(surface, (x, y))
 
     def draw_game(self):
+
         self.screen.fill(self.settings.board_color_1)
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, (0, 0, self.WINDOW_WIDTH, self.MENU_HEIGHT))
 
@@ -415,6 +420,7 @@ class GameInterface:
         for row in range(8):
             for col in range(8):
                 piece_value = self.game.board.board[row, col]
+
                 if piece_value != 0:
                     self.draw_piece(self.screen, piece_value, row, col)
         self.game.draw_valid_moves()
@@ -560,8 +566,8 @@ class GameInterface:
         self.screen.blit(gradient_surface, (timer_rect.x, timer_rect.y))
 
         pygame.draw.rect(self.screen, self.BLACK, timer_rect, 2, border_radius=10)
-        pygame.draw.line(self.screen, self.BLACK, (timer_rect.x + timer_rect.width // 2, self.MENU_HEIGHT),
-                        (timer_rect.x + timer_rect.width // 2, timer_rect.y + timer_rect.height), 2)
+        pygame.draw.line(self.screen, self.BLACK, (timer_rect.x + timer_rect.width // 2, timer_rect.y),
+                         (timer_rect.x + timer_rect.width // 2, timer_rect.y + timer_rect.height), 2)
 
         bold_font = pygame.font.SysFont('Arial', 18, bold=True)
         player_1_time = self.game.timer.get_current_time(False)
@@ -671,7 +677,7 @@ class GameInterface:
                     self.game.handle_click(pos)
         return True
 
-    def update(self):
+    def update(self, ai_id=None):
         current_time = pygame.time.get_ticks()
         self.game._update_game()
         if self.game.game_started and not self.game.game_over:
@@ -680,12 +686,12 @@ class GameInterface:
                     print("Player 1 AI move ready")
                     self.player_1_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make_ai_move()  # اصلاح خطای تایپی
+                    self.game.make_ai_move("ai_1")  # مشخصاً ai_1 برای player 1
                 elif self.player_2_move_ready and self.game.turn:
                     print("Player 2 AI move ready")
                     self.player_2_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make_ai_move()  # اصلاح خطای تایپی
+                    self.game.make_ai_move("ai_2")  # مشخصاً ai_2 برای player 2
                 elif not self.player_1_move_ready and not self.game.turn:
                     if current_time - self._move_start_time >= self.settings.ai_pause_time:
                         print("Player 1 AI move ready after pause")
@@ -699,26 +705,26 @@ class GameInterface:
                     print("Player 2 AI move ready (human_vs_ai)")
                     self.player_2_move_ready = False
                     self._move_start_time = current_time
-                    self.game.make_ai_move()  # اصلاح خطای تایپی
+                    self.game.make_ai_move("ai_2")
                 elif current_time - self._move_start_time >= self.settings.ai_pause_time:
                     print("Player 2 AI move ready after pause (human_vs_ai)")
                     self.player_2_move_ready = True
-        if self.game.game_over and self.settings.game_mode == "ai_vs_ai" and self.settings.ai_vs_ai_mode == "repeat_game":
-            if self.current_hand < self.settings.repeat_hands:
-                if self.pause_start_time is None:
-                    self.pause_start_time = current_time
-                elif current_time - self.pause_start_time >= self.settings.pause_between_hands:
-                    print("Starting new hand")
-                    self.game.reset_board()
-                    self.game.start_game()
-                    self.current_hand += 1
-                    self.pause_start_time = None
-                    self.auto_start_triggered = False
-            else:
-                print("All hands completed")
-                self.auto_start_triggered = True
-                self.new_game_button.text = LANGUAGES[self.settings.language]["start_game"]
-                self.game.game_started = False
+            if self.game.game_over and self.settings.game_mode == "ai_vs_ai" and self.settings.ai_vs_ai_mode == "repeat_game":
+                if self.current_hand < self.settings.repeat_hands:
+                    if self.pause_start_time is None:
+                        self.pause_start_time = current_time
+                    elif current_time - self.pause_start_time >= self.settings.pause_between_hands:
+                        print("Starting new hand")
+                        self.game.reset_board()
+                        self.game.start_game()
+                        self.current_hand += 1
+                        self.pause_start_time = None
+                        self.auto_start_triggered = False
+                else:
+                    print("All hands completed")
+                    self.auto_start_triggered = True
+                    self.new_game_button.text = LANGUAGES[self.settings.language]["start_game"]
+                    self.game.game_started = False
         self.draw_game()
         pygame.display.update()
 

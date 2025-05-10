@@ -11,6 +11,12 @@ from .config import load_config
 from .rewards import RewardCalculator
 from .base_ai import BaseAI
 
+AI_METADATA = {
+    "type": "alhazero_ai",
+    "description": "هوش مصنوعی پیشرفته ...",
+    "code": "az"
+}
+
 log_dir = os.path.dirname(os.path.dirname(__file__))
 log_file = os.path.join(log_dir, 'alphazero_ai.log')
 logging.basicConfig(
@@ -24,6 +30,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class AlphaZeroAI(BaseAI):
+    metadata = AI_METADATA
+
     def __init__(self, game, color, model_name, ai_id, settings=None):
         super().__init__(game, color, model_name, ai_id, settings)
         config = load_config()

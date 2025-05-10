@@ -4,282 +4,63 @@ import sys
 from pathlib import Path
 import importlib
 
-LANGUAGES = {
-    "en": {
-        "piece_images": "Piece Images",
-        "player_1_piece": "Player 1 Piece",
-        "player_1_king": "Player 1 King",
-        "player_2_piece": "Player 2 Piece",
-        "player_2_king": "Player 2 King",
-        "al_progress": "AL Progress",
-        "az_progress": "AZ Progress",
-        "wins": "Wins",
-        "losses": "Losses",
-        "add_new_ai": "add_new_ai",
-        "draws": "Draws",
-        "time": "TIME:",
-        "remove_ai": "remove_ai:",
-        "avg_move_time": "Avg Move Time (ms)",
-        "settings": "Settings",
-        "help": "Help",
-        "player_1_color": "player_1_color",
-        "player_2_color": "player_2_color",
-        "about_me": "About me",
-        "start_game": "Start Game",
-        "new_game": "New Game",
-        "reset_scores": "Reset Scores",
-        "game_result": "Game Result",
-        "player_wins": "Player 1 Wins",
-        "ai_wins": "Player 2 Wins",
-        "reset_scores_warning": "Are you sure you want to reset scores?",
-        "pieces": "Pieces",
-        "settings_reset": "Settings have been reset to default values.",
-        "footer": "",
-        "confirm": "Confirm",
-        "new_game_warning": "Start a new game?",
-        "warning": "Warning",
-        "game_settings_tab": "Game",
-        "default_reward_weights": "default_reward_weights",
-        "design_tab": "Design",
-        "ai_tab": "AI",
-        "player_tab": "Players",
-        "advanced_ai_settings": "Advanced AI Settings",  # اضافه شده برای رفع خطا
-        "play_with": "Play With",
-        "human_vs_human": "Human vs Human",
-        "human_vs_ai": "Human vs AI",
-        "ai_vs_ai": "AI vs AI",
-        "only_once": "Only Once",
-        "repeat_game": "Repeat Game",
-        "starting_player": "Starting Player",
-        "player": "Player 1",
-        "ai": "Player 2",
-        "game_timer": "Game Timer",
-        "no_timer": "No Timer",
-        "with_timer": "With Timer",
-        "game_duration": "Duration (min):",
-        "language": "Language",
-        "color_settings": "Colors",
-        "player_piece_color": "Player 1:",
-        "ai_piece_color": "Player 2:",
-        "board_color_1": "Board Light:",
-        "board_color_2": "Board Dark:",
-        "piece_style": "Piece Style",
-        "sound_settings": "Sound",
-        "sound_on": "On",
-        "sound_off": "Off",
-        "ai_pause_time": "AI Pause Time",
-        "ms": "ms",
-        "ai_ability": "AI Ability",
-        "player_1_name": "Player 1 Name",
-        "player_2_name": "Player 2 Name",
-        "al1_name": "AL 1 Name",
-        "al2_name": "AL 2 Name",
-        "upload_image": "Upload Image",
-        "save_changes": "Save",
-        "close": "Close",
-        "reset_settings": "Reset",
-        "coming_soon": "Coming Soon",
-        "player_1_ai_type": "Player 1 AI Type",
-        "player_2_ai_type": "Player 2 AI Type",
-        "error": "Error",
-        "ai_pause_error": "AI pause time must be between 0 and 5000 ms",
-        "invalid_number_hands": "Number of hands must be between 1 and 1000",
-        "invalid_number_error": "Please enter valid numbers",
-        "apply_after_game": "Settings will apply after the game ends",
-        "reset_settings_warning": "Are you sure you want to reset all settings?",
-        "advanced_settings_tab": "Advanced Settings",
-        "advanced_settings_warning": "These settings may affect AI performance. If you lack expertise, we recommend using default values.",
-        "ai_ability_level": "AI Ability Level",
-        "very_weak": "Very Weak",
-        "weak": "Weak",
-        "ai_type": "ai_type",
-        "ai_settings_tab": "ai_settings_tab",
-        "add_ai": "add_ai",
-        "new_ai_type": "new_ai_type",
-        "strong": "Strong",
-        "very_strong": "Very Strong",
-        "select_module_class": "select_module_class",
-        "advanced_config": "Advanced Config",
-        "al1_training_params": "AL 1 Training Parameters",
-        "al2_training_params": "AL 2 Training Parameters",
-        "az1_training_params": "AlphaZero 1 Training Parameters",
-        "az2_training_params": "AlphaZero 2 Training Parameters",
-        "mcts_params": "MCTS Parameters",
-        "medium": "Medium",
-        "default_ai_params": "default_ai_params",
-        "network_params": "Network Parameters",
-        "advanced_nn_params": "Advanced NN Parameters",
-        "reset_tab": "Reset This Tab",
-        "save_all": "Save All",
-        "advanced_settings_title": "Advanced AI Configuration",
-        "open_advanced_config": "Open Advanced Configuration",
-        "training_params": "Training Parameters",
-        "reward_weights": "Reward Weights",
-        "description": "description",
-        "search_modules": "search_modules",
-        "remove_selected": "remove_selected",
-        "player_1": "Player 1",
-        "new_description": "new_description",
-        "player_2": "Player 2",
-        "settings_saved": "Settings saved successfully.",
-        "ai_added": "AI added successfully.",
-        "ai_removed": "AI removed successfully.",
-        "fill_all_fields": "Please fill all required fields.",
-        "ai_type_exists": "This AI type already exists.",
-        "add": "add",
-        "ability_levels": "ability_levels",
-        "status": "status",
-        "player_2_ability": "player_2_ability",
-        "player_1_ability": "player_1_ability",
-        "remove": "remove",
-        "info": "info",
-        "ability": "Ability",
-        "ai_pause_time_ms": "AI Pause Time (ms)",
-        "player_1_ai": "Player 1 AI",
-        "player_2_ai": "Player 2 AI",
-        "select_ai_to_remove": "Please select an AI to remove.",
-        "ai_players": "ai_players",
-        "no_ai_selected": "No AI selected",
-        "sound_enabled": "sound_enabled",
-        "invalid_input": "Invalid input. Please enter a valid value.",
+# متغیر سراسری برای پارامترهای پیش‌فرض AI
+DEFAULT_AI_PARAMS = {
+    "training_params": {
+        "memory_size": 10000,
+        "batch_size": 128,
+        "learning_rate": 0.001,
+        "gamma": 0.99,
+        "epsilon_start": 1.0,
+        "epsilon_end": 0.01,
+        "epsilon_decay": 0.999,
+        "update_target_every": 100,
+        "reward_threshold": 0.5
     },
-    "fa": {
-        "piece_images": "تصاویر مهره‌ها",
-        "sound_enabled": "sound_enabled",
-        "player_1_piece": "مهره بازیکن ۱",
-        "player_1_king": "شاه بازیکن ۱",
-        "info": "info",
-        "no_ai_selected": "No AI selected",
-        "player_2_piece": "مهره بازیکن ۲",
-        "player_2_king": "شاه بازیکن ۲",
-        "add_ai": "add_ai",
-        "ability": "ability",
-        "status": "status",
-        "ai_players": "ai_players",
-        "player_1_ai": "player_1_ai",
-        "player_2_ai": "player_2_ai",
-        "ai_pause_time_ms": "ai_pause_time_ms",
-        "player_1_color": "player_1_color",
-        "player_2_color": "player_2_color",
-        "add": "add",
-        "player_2_ability": "player_2_ability",
-        "player_1_ability": "player_1_ability",
-        "remove": "remove",
-        "al_progress": "پیشرفت هوش مصنوعی",
-        "remove_selected": "remove_selected",
-        "az_progress": "پیشرفت هوش مصنوعی",
-        "ai_type": "ai_type",
-        "search_modules": "search_modules",
-        "description": "description",
-        "add_new_ai": "add_new_ai",
-        "settings_reset": "تنظیمات به مقادیر پیش‌فرض بازنشانی شدند.",
-        "ai_added": "هوش مصنوعی با موفقیت اضافه شد.",
-        "ai_settings_tab": "ai_settings_tab",
-        "remove_ai": "remove_ai:",
-        "ai_removed": "هوش مصنوعی با موفقیت حذف شد.",
-        "fill_all_fields": "لطفاً تمام فیلدهای مورد نیاز را پر کنید.",
-        "ai_type_exists": "این نوع هوش مصنوعی قبلاً وجود دارد.",
-        "select_ai_to_remove": "لطفاً یک هوش مصنوعی برای حذف انتخاب کنید.",
-        "wins": "بردها",
-        "losses": "باخت‌ها",
-        "draws": "تساوی‌ها",
-        "time": "زمان:",
-        "avg_move_time": "میانگین زمان حرکت (میلی‌ثانیه)",
-        "settings": "تنظیمات",
-        "help": "راهنما",
-        "about_me": "درباره من",
-        "start_game": "شروع بازی",
-        "new_game": "بازی جدید",
-        "reset_scores": "بازنشانی امتیازات",
-        "game_result": "نتیجه بازی",
-        "ability_levels": "ability_levels",
-        "player_wins": "بازیکن ۱ برنده شد",
-        "ai_wins": "بازیکن ۲ برنده شد",
-        "reset_scores_warning": "آیا مطمئن هستید که می‌خواهید امتیازات را بازنشانی کنید؟",
-        "pieces": "مهره‌ها",
-        "footer": "",
-        "new_description": "new_description",
-        "confirm": "تأیید",
-        "new_game_warning": "آیا بازی جدیدی شروع شود؟",
-        "warning": "هشدار",
-        "game_settings_tab": "بازی",
-        "design_tab": "طراحی",
-        "ai_tab": "هوش مصنوعی",
-        "advanced_settings_title": "پیکربندی پیشرفته هوش مصنوعی",
-        "open_advanced_config": "باز کردن پیکربندی پیشرفته",
-        "training_params": "پارامترهای آموزش",
-        "reward_weights": "وزن‌های پاداش",
-        "player_1": "بازیکن ۱",
-        "player_2": "بازیکن ۲",
-        "player_tab": "بازیکنان",
-        "advanced_ai_settings": "تنظیمات پیشرفته هوش مصنوعی",  # اضافه شده برای رفع خطا
-        "play_with": "بازی با",
-        "human_vs_human": "انسان در برابر انسان",
-        "human_vs_ai": "انسان در برابر هوش مصنوعی",
-        "ai_vs_ai": "هوش مصنوعی در برابر هوش مصنوعی",
-        "new_ai_type": "new_ai_type",
-        "only_once": "فقط یک بار",
-        "repeat_game": "تکرار بازی",
-        "starting_player": "بازیکن شروع‌کننده",
-        "player": "بازیکن ۱",
-        "ai": "بازیکن ۲",
-        "game_timer": "تایمر بازی",
-        "no_timer": "بدون تایمر",
-        "with_timer": "با تایمر",
-        "game_duration": "مدت زمان (دقیقه):",
-        "language": "زبان",
-        "color_settings": "تنظیمات رنگ",
-        "player_piece_color": "بازیکن ۱:",
-        "ai_piece_color": "بازیکن ۲:",
-        "board_color_1": "روشن صفحه:",
-        "board_color_2": "تیره صفحه:",
-        "piece_style": "سبک مهره",
-        "sound_settings": "صدا",
-        "sound_on": "روشن",
-        "sound_off": "خاموش",
-        "ai_pause_time": "زمان مکث هوش مصنوعی",
-        "ms": "میلی‌ثانیه",
-        "ai_ability": "توانایی هوش مصنوعی",
-        "player_1_name": "نام بازیکن ۱",
-        "player_2_name": "نام بازیکن ۲",
-        "al1_name": "نام هوش مصنوعی ۱",
-        "al2_name": "نام هوش مصنوعی ۲",
-        "upload_image": "بارگذاری تصویر",
-        "save_changes": "ذخیره",
-        "close": "بستن",
-        "reset_settings": "بازنشانی",
-        "default_reward_weights": "default_reward_weights",
-        "coming_soon": "به زودی",
-        "player_1_ai_type": "نوع هوش مصنوعی بازیکن ۱",
-        "player_2_ai_type": "نوع هوش مصنوعی بازیکن ۲",
-        "error": "خطا",
-        "ai_pause_error": "زمان مکث هوش مصنوعی باید بین ۰ تا ۵۰۰۰ میلی‌ثانیه باشد",
-        "invalid_number_hands": "تعداد دست‌ها باید بین ۱ تا ۱۰۰۰ باشد",
-        "invalid_number_error": "لطفاً اعداد معتبر وارد کنید",
-        "apply_after_game": "تنظیمات پس از پایان بازی اعمال خواهند شد",
-        "reset_settings_warning": "آیا مطمئن هستید که می‌خواهید تمام تنظیمات را بازنشانی کنید؟",
-        "advanced_settings_tab": "تنظیمات پیشرفته",
-        "advanced_settings_warning": "این تنظیمات ممکن است روی کارایی هوش‌های مصنوعی تأثیر بگذارد. در صورتی که در این زمینه آگاهی ندارید، پیشنهاد می‌کنیم از گزینه‌های پیش‌فرض استفاده کنید.",
-        "ai_ability_level": "سطح توانایی هوش مصنوعی",
-        "very_weak": "خیلی ضعیف",
-        "weak": "ضعیف",
-        "medium": "متوسط",
-        "default_ai_params": "default_ai_params",
-        "strong": "قوی",
-        "settings_saved": "تنظیمات با موفقیت ذخیره شدند.",
-        "very_strong": "خیلی قوی",
-        "advanced_config": "پیکربندی پیشرفته",
-        "al1_training_params": "پارامترهای آموزش Advanced AI ۱",
-        "al2_training_params": "پارامترهای آموزش Advanced AI ۲",
-        "az1_training_params": "پارامترهای آموزش AlphaZero ۱",
-        "az2_training_params": "پارامترهای آموزش AlphaZero ۲",
-        "mcts_params": "پارامترهای MCTS",
-        "select_module_class": "select_module_class",
-        "network_params": "پارامترهای شبکه",
-        "advanced_nn_params": "پارامترهای شبکه پیشرفته",
-        "reset_tab": "بازنشانی این تب",
-        "save_all": "ذخیره همه",
-        "invalid_input": "ورودی نامعتبر. لطفاً مقدار معتبر وارد کنید."
+    "reward_weights": {
+        "piece_difference": 1.0,
+        "king_bonus": 2.0,
+        "position_bonus": 0.1,
+        "capture_bonus": 1.0,
+        "multi_jump_bonus": 2.0,
+        "king_capture_bonus": 3.0,
+        "mobility_bonus": 0.1,
+        "safety_penalty": -0.5
+    },
+    "mcts_params": {
+        "c_puct": 1.0,
+        "num_simulations": 200,
+        "max_cache_size": 10000,
+        "num_processes": 4,
+        "cache_file": "state_cache.json.gz",
+        "cache_save_interval": 100
+    },
+    "network_params": {
+        "input_channels": 4,
+        "num_filters": 64,
+        "num_blocks": 8,
+        "board_size": 8,
+        "num_actions": 1024,
+        "dropout_rate": 0.3
+    },
+    "advanced_nn_params": {
+        "input_channels": 3,
+        "conv1_filters": 64,
+        "conv1_kernel_size": 3,
+        "conv1_padding": 1,
+        "residual_block1_filters": 64,
+        "residual_block2_filters": 128,
+        "conv2_filters": 128,
+        "attention_embed_dim": 128,
+        "attention_num_heads": 4,
+        "fc_layer_sizes": [512, 256],
+        "dropout_rate": 0.3
+    },
+    "end_game_rewards": {
+        "win_no_timeout": 100,
+        "win_timeout": 0,
+        "draw": -50,
+        "loss": -100
     }
 }
 
@@ -293,7 +74,11 @@ def get_config_path():
 
 def get_ai_config_path():
     """بازگرداندن مسیر فایل ai_config.json"""
-    return Path(__file__).parent.parent / "ai_config.json"
+    return Path(__file__).parent.parent / "configs" / "ai_config.json"
+
+def get_ai_specific_config_path(ai_code):
+    """بازگرداندن مسیر فایل کانفیگ خاص AI (مثل al_config.json)"""
+    return Path(__file__).parent.parent / "configs" / "ai" / f"{ai_code}_config.json"
 
 def load_config():
     """بارگذاری تنظیمات غیر AI از فایل config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
@@ -363,102 +148,13 @@ def load_config():
         "player_2_color": "#0000ff",
         "board_color_1": "#ffffff",
         "board_color_2": "#8b4513",
-        "max_no_capture_moves": 40,
-        "ai_configs": {
-            "player_1": {
-                "ai_type": "none",
-                "ability_level": 5,
-                "training_params": {},
-                "reward_weights": {
-                    "piece_difference": 1.0,
-                    "king_bonus": 2.0,
-                    "position_bonus": 0.1,
-                    "capture_bonus": 1.0,
-                    "multi_jump_bonus": 2.0,
-                    "king_capture_bonus": 3.0,
-                    "mobility_bonus": 0.1,
-                    "safety_penalty": -0.5
-                }
-            },
-            "player_2": {
-                "ai_type": "none",
-                "ability_level": 5,
-                "training_params": {},
-                "reward_weights": {
-                    "piece_difference": 1.0,
-                    "king_bonus": 2.0,
-                    "position_bonus": 0.1,
-                    "capture_bonus": 1.0,
-                    "multi_jump_bonus": 2.0,
-                    "king_capture_bonus": 3.0,
-                    "mobility_bonus": 0.1,
-                    "safety_penalty": -0.5
-                }
-            }
-        },
-        "default_ai_params": {
-            "training_params": {
-                "memory_size": 10000,
-                "batch_size": 128,
-                "learning_rate": 0.001,
-                "gamma": 0.99,
-                "epsilon_start": 1.0,
-                "epsilon_end": 0.01,
-                "epsilon_decay": 0.999
-            },
-            "reward_weights": {
-                "piece_difference": 1.0,
-                "king_bonus": 2.0,
-                "position_bonus": 0.1,
-                "capture_bonus": 1.0,
-                "multi_jump_bonus": 2.0,
-                "king_capture_bonus": 3.0,
-                "mobility_bonus": 0.1,
-                "safety_penalty": -0.5
-            }
-        },
-        "mcts_params": {
-            "c_puct": 1.0,
-            "num_simulations": 200,
-            "max_cache_size": 10000,
-            "num_processes": 4,
-            "cache_file": "state_cache.json.gz",
-            "cache_save_interval": 100
-        },
-        "network_params": {
-            "input_channels": 4,
-            "num_filters": 64,
-            "num_blocks": 8,
-            "board_size": 8,
-            "num_actions": 1024,
-            "dropout_rate": 0.3
-        },
-        "advanced_nn_params": {
-            "input_channels": 3,
-            "conv1_filters": 64,
-            "conv1_kernel_size": 3,
-            "conv1_padding": 1,
-            "residual_block1_filters": 64,
-            "residual_block2_filters": 128,
-            "conv2_filters": 128,
-            "attention_embed_dim": 128,
-            "attention_num_heads": 4,
-            "fc_layer_sizes": [512, 256],
-            "dropout_rate": 0.3
-        },
-        "end_game_rewards": {
-            "win_no_timeout": 100,
-            "win_timeout": 0,
-            "draw": -50,
-            "loss": -100
-        }
+        "max_no_capture_moves": 40
     }
     config_path = get_config_path()
     try:
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                # به‌روزرسانی تنظیمات موجود با پیش‌فرض‌ها
                 for key, value in default_config.items():
                     if key not in config:
                         config[key] = value
@@ -479,114 +175,33 @@ def load_config():
 def save_config(config):
     """ذخیره تنظیمات غیر AI در فایل config.json"""
     config_path = get_config_path()
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
-    print(f"Config saved to {config_path}")
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        print(f"Config saved to {config_path}")
+    except Exception as e:
+        print(f"Error saving config to {config_path}: {e}")
 
 def load_ai_config():
-    """بارگذاری تنظیمات AI از فایل ai_config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
+    """بارگذاری تنظیمات AI از ai_config.json و فایل‌های کانفیگ مجزا"""
     default_ai_config = {
-        "ai_types": {},  # بدون AI‌های پیش‌فرض
+        "ai_types": {},  # خالی، بدون AI پیش‌فرض
         "ai_configs": {
             "player_1": {
                 "ai_type": "none",
+                "ai_code": None,
                 "ability_level": 5,
-                "training_params": {},
-                "reward_weights": {
-                    "piece_difference": 1.0,
-                    "king_bonus": 2.0,
-                    "position_bonus": 0.1,
-                    "capture_bonus": 1.0,
-                    "multi_jump_bonus": 2.0,
-                    "king_capture_bonus": 3.0,
-                    "mobility_bonus": 0.1,
-                    "safety_penalty": -0.5
-                }
+                "params": {}
             },
             "player_2": {
                 "ai_type": "none",
+                "ai_code": None,
                 "ability_level": 5,
-                "training_params": {},
-                "reward_weights": {
-                    "piece_difference": 1.0,
-                    "king_bonus": 2.0,
-                    "position_bonus": 0.1,
-                    "capture_bonus": 1.0,
-                    "multi_jump_bonus": 2.0,
-                    "king_capture_bonus": 3.0,
-                    "mobility_bonus": 0.1,
-                    "safety_penalty": -0.5
-                }
+                "params": {}
             }
         },
-        "default_ai_params": {
-            "training_params": {
-                "memory_size": 10000,
-                "batch_size": 128,
-                "learning_rate": 0.001,
-                "gamma": 0.99,
-                "epsilon_start": 1.0,
-                "epsilon_end": 0.01,
-                "epsilon_decay": 0.999
-            },
-            "reward_weights": {
-                "piece_difference": 1.0,
-                "king_bonus": 2.0,
-                "position_bonus": 0.1,
-                "capture_bonus": 1.0,
-                "multi_jump_bonus": 2.0,
-                "king_capture_bonus": 3.0,
-                "mobility_bonus": 0.1,
-                "safety_penalty": -0.5
-            }
-        },
-        "mcts_params": {
-            "c_puct": 1.0,
-            "num_simulations": 200,
-            "max_cache_size": 10000,
-            "num_processes": 4,
-            "cache_file": "state_cache.json.gz",
-            "cache_save_interval": 100
-        },
-        "network_params": {
-            "input_channels": 4,
-            "num_filters": 64,
-            "num_blocks": 8,
-            "board_size": 8,
-            "num_actions": 1024,
-            "dropout_rate": 0.3
-        },
-        "advanced_nn_params": {
-            "input_channels": 3,
-            "conv1_filters": 64,
-            "conv1_kernel_size": 3,
-            "conv1_padding": 1,
-            "residual_block1_filters": 64,
-            "residual_block2_filters": 128,
-            "conv2_filters": 128,
-            "attention_embed_dim": 128,
-            "attention_num_heads": 4,
-            "fc_layer_sizes": [512, 256],
-            "dropout_rate": 0.3
-        },
-        "end_game_rewards": {
-            "win_no_timeout": 100,
-            "win_timeout": 0,
-            "draw": -50,
-            "loss": -100
-        },
-        "available_ais": [
-            {
-                "type": "base_ai",
-                "module": "a.base_ai",
-                "class": "BaseAI"
-            },
-            {
-                "type": "advanced_ai",
-                "module": "a.advanced_ai",
-                "class": "AdvancedAI"
-            }
-        ]
+        "available_ais": []  # خالی، بدون AI پیش‌فرض
     }
 
     ai_config_path = get_ai_config_path()
@@ -611,13 +226,36 @@ def load_ai_config():
         ai_config = default_ai_config
         save_ai_config(ai_config)
 
+    # اعتبارسنجی کدهای دوحرفی
+    used_codes = set()
+    for ai in ai_config["available_ais"]:
+        code = ai.get("code")
+        if not code or len(code) != 2:
+            print(f"Invalid or missing code for AI {ai['type']}, skipping")
+            continue
+        if code in used_codes:
+            print(f"Duplicate code {code} for AI {ai['type']}, skipping")
+            continue
+        used_codes.add(code)
+
+    # اضافه کردن AIهای جدید به ai_types
+    for ai in ai_config["available_ais"]:
+        ai_type = ai.get("type")
+        if ai_type and ai_type not in ai_config["ai_types"]:
+            ai_config["ai_types"][ai_type] = {
+                "module": ai.get("module"),
+                "class": ai.get("class"),
+                "code": ai.get("code")
+            }
+
+    # اعتبارسنجی ماژول‌های AI
     project_dir = Path(__file__).parent
     root_dir = project_dir.parent
     if str(root_dir) not in sys.path:
         sys.path.append(str(root_dir))
 
     valid_ai_types = {}
-    for ai_type, ai_info in ai_config.get("ai_types", {}).items():
+    for ai_type, ai_info in ai_config["ai_types"].items():
         full_module_name = ai_info.get("module", "")
         if not full_module_name.startswith("a."):
             print(f"AI type {ai_type} ignored: invalid module name {full_module_name}")
@@ -633,6 +271,15 @@ def load_ai_config():
                 if hasattr(module, class_name):
                     valid_ai_types[ai_type] = ai_info
                     print(f"AI type {ai_type} validated: module {full_module_name}, class {class_name}")
+                    # ایجاد فایل کانفیگ مجزا برای AI
+                    ai_code = ai_info.get("code")
+                    if ai_code:
+                        ai_specific_config_path = get_ai_specific_config_path(ai_code)
+                        if not ai_specific_config_path.exists():
+                            save_ai_specific_config(ai_code, {
+                                "player_1": DEFAULT_AI_PARAMS.copy(),
+                                "player_2": DEFAULT_AI_PARAMS.copy()
+                            })
                 else:
                     print(f"AI type {ai_type} ignored: class '{class_name}' not found in module {full_module_name}")
             except Exception as e:
@@ -641,9 +288,21 @@ def load_ai_config():
             print(f"AI type {ai_type} ignored: module file {module_path} not found")
 
     ai_config["ai_types"] = valid_ai_types
-    save_ai_config(ai_config)  # ذخیره بعد از اعتبارسنجی
-    return ai_config
 
+    # لود تنظیمات خاص AIها از فایل‌های کانفیگ مجزا
+    for player in ["player_1", "player_2"]:
+        ai_type = ai_config["ai_configs"][player]["ai_type"]
+        if ai_type != "none" and ai_type in valid_ai_types:
+            ai_code = valid_ai_types[ai_type]["code"]
+            ai_config["ai_configs"][player]["ai_code"] = ai_code
+            ai_specific_config = load_ai_specific_config(ai_code)
+            ai_config["ai_configs"][player]["params"] = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
+        else:
+            ai_config["ai_configs"][player]["ai_code"] = None
+            ai_config["ai_configs"][player]["params"] = {}
+
+    save_ai_config(ai_config)
+    return ai_config
 
 def save_ai_config(ai_config):
     """ذخیره تنظیمات AI در فایل ai_config.json"""
@@ -656,6 +315,53 @@ def save_ai_config(ai_config):
     except Exception as e:
         print(f"Error saving AI config to {ai_config_path}: {e}")
 
+def load_ai_specific_config(ai_code):
+    """بارگذاری تنظیمات خاص AI از فایل کانفیگ خودش (مثل al_config.json)"""
+    ai_specific_config_path = get_ai_specific_config_path(ai_code)
+    try:
+        if ai_specific_config_path.exists():
+            with open(ai_specific_config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                # اعتبارسنجی و تکمیل تنظیمات
+                for player in ["player_1", "player_2"]:
+                    if player not in config:
+                        config[player] = DEFAULT_AI_PARAMS.copy()
+                    else:
+                        for param_type, param_values in DEFAULT_AI_PARAMS.items():
+                            if param_type not in config[player]:
+                                config[player][param_type] = param_values.copy()
+                            else:
+                                for key, value in param_values.items():
+                                    if key not in config[player][param_type]:
+                                        config[player][param_type][key] = value
+                print(f"Loaded AI specific config from {ai_specific_config_path}")
+        else:
+            print(f"AI specific config file not found at {ai_specific_config_path}, creating with default config")
+            config = {
+                "player_1": DEFAULT_AI_PARAMS.copy(),
+                "player_2": DEFAULT_AI_PARAMS.copy()
+            }
+            save_ai_specific_config(ai_code, config)
+        return config
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"Error loading AI specific config from {ai_specific_config_path}: {e}, using default config")
+        config = {
+            "player_1": DEFAULT_AI_PARAMS.copy(),
+            "player_2": DEFAULT_AI_PARAMS.copy()
+        }
+        save_ai_specific_config(ai_code, config)
+        return config
+
+def save_ai_specific_config(ai_code, config):
+    """ذخیره تنظیمات خاص AI در فایل کانفیگ خودش (مثل al_config.json)"""
+    ai_specific_config_path = get_ai_specific_config_path(ai_code)
+    try:
+        ai_specific_config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(ai_specific_config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+        print(f"AI specific config saved to {ai_specific_config_path}")
+    except Exception as e:
+        print(f"Error saving AI specific config to {ai_specific_config_path}: {e}")
 
 def load_stats():
     """بارگذاری آمار بازی"""
@@ -663,10 +369,7 @@ def load_stats():
     default_stats = {
         "player_1_wins": 0,
         "player_2_wins": 0,
-        "ai_stats": {
-            "al1": {"wins": 0, "losses": 0, "draws": 0, "move_times": []},
-            "al2": {"wins": 0, "losses": 0, "draws": 0, "move_times": []}
-        }
+        "ai_stats": {}
     }
     try:
         if stats_path.exists():
@@ -680,7 +383,6 @@ def load_stats():
         print(f"Error loading stats from {stats_path}: {e}, using default stats")
         save_stats(default_stats)
     return default_stats
-
 
 def save_stats(stats):
     """ذخیره آمار بازی"""

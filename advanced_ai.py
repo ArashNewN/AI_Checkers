@@ -13,10 +13,11 @@ from .config import load_config, load_ai_config
 from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
 
-# متادیتای ماژول و تنظیمات مسیر همانند کد اصلی باقی می‌ماند
+# متادیتای ماژول
 AI_METADATA = {
-    "default_type": "advanced_ai",
-    "default_description": "هوش مصنوعی پیشرفته با شبکه عصبی عمیق و یادگیری تقویتی."
+    "type": "advanced_ai",
+    "description": "هوش مصنوعی پیشرفته با شبکه عصبی عمیق و یادگیری تقویتی.",
+    "code": "al"
 }
 
 project_dir = Path(__file__).parent
@@ -28,12 +29,11 @@ if str(parent_dir) not in sys.path:
     sys.path.append(str(parent_dir))
 
 class AdvancedNN(nn.Module):
-    # کد شبکه عصبی بدون تغییر باقی می‌ماند
-    def __init__(self):
+    def __init__(self, ai_config, player_key):
         super(AdvancedNN, self).__init__()
-        config = load_config()
-        nn_params = config["advanced_nn_params"]
-        board_size = config["network_params"]["board_size"]
+        # استفاده از تنظیمات از ai_config
+        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
+        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
 
         self.conv1 = nn.Conv2d(
             nn_params["input_channels"],
@@ -105,10 +105,9 @@ class AdvancedNN(nn.Module):
 
         self.residual = nn.Linear(board_size * board_size * nn_params["input_channels"], board_size * board_size)
 
-    def forward(self, state):
-        config = load_config()
-        board_size = config["network_params"]["board_size"]
-        nn_params = config["advanced_nn_params"]
+    def forward(self, state, ai_config, player_key):
+        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
+        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
 
         batch_size = state.size(0)
         x = state.view(batch_size, nn_params["input_channels"], board_size, board_size)
@@ -127,14 +126,15 @@ class AdvancedNN(nn.Module):
         return fc_out + residual_out
 
 class AdvancedAI(BaseAI):
-    def __init__(self, game, color, model_name, ai_id, settings=None):
-        super().__init__(game, color, model_name, ai_id, settings)
-        config = load_config()
-        ai_config = load_ai_config()  # بارگذاری ai_config.json
+    metadata = AI_METADATA
+
+    def __init__(self, game, model_name, ai_id, config=None):
+        super().__init__(game, model_name, ai_id, settings=None)
+        config_dict = config if config else {}
+        ai_config = config_dict.get("ai_configs", load_ai_config())
         player_key = "player_1" if ai_id == "ai_1" else "player_2"
 
-        # خواندن ability از ai_config.json
-        self.ability = min(max(int(ai_config["ai_configs"][player_key].get("ability_level", 5)), 1), 10)
+        self.ability = min(max(int(ai_config[player_key].get("ability_level", 5)), 1), 10)
         self.az_id = ai_id
 
         pth_dir = Path(__file__).parent.parent / "pth"
@@ -143,12 +143,11 @@ class AdvancedAI(BaseAI):
         self.backup_path = pth_dir / f"backup_{model_name}_{ai_id}.pth"
         self.long_term_memory_path = pth_dir / f"long_term_memory_{ai_id}.json"
 
-        self.training_params = config.get(f"{ai_id}_training_params", {})
-        self.memory = deque(maxlen=self.training_params.get("memory_size", 10000))
+        self.training_params = ai_config[player_key]["params"].get("training_params", {})
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.policy_net = AdvancedNN().to(self.device)
-        self.target_net = AdvancedNN().to(self.device)
+        self.policy_net = AdvancedNN(ai_config, player_key).to(self.device)
+        self.target_net = AdvancedNN(ai_config, player_key).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.training_params.get("learning_rate", 0.0005))
 
@@ -192,43 +191,43 @@ class AdvancedAI(BaseAI):
             return None
 
     def get_valid_moves(self, board):
-        """دریافت تمام حرکت‌های معتبر برای بازیکن فعلی با استفاده از متد game.py."""
         valid_moves = {}
-        print(f"Getting valid moves for {self.ai_id} (color: {self.color})")
-        config = load_config()
-        board_size = config["network_params"]["board_size"]
-
+        ai_config = load_ai_config()
+        player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
+        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
+        print(f"Getting valid moves for {self.ai_id} (color: {self.color}) with board shape: {board.shape}")
         for row in range(board_size):
             for col in range(board_size):
-                piece = board[row, col]  # دسترسی به آرایه NumPy
-                # بررسی اینکه مهره متعلق به بازیکن فعلی است
+                piece = board[row, col]
                 if piece != 0 and ((piece < 0) == (self.color == "black")):
-                    moves = self.game.get_valid_moves(row, col)  # استفاده از متد game.py
+                    print(f"Checking piece at ({row}, {col}): {piece}")
+                    moves = self.game.get_valid_moves(row, col)
+                    print(f"Moves for ({row}, {col}): {moves}")
                     if moves:
                         for move, skipped in moves.items():
                             valid_moves[((row, col), move)] = skipped
-                        print(f"Piece at ({row}, {col}): Moves = {moves}")
-
+                        print(f"Added moves for ({row}, {col}): {valid_moves}")
         print(f"Final valid moves: {valid_moves}")
         return valid_moves
 
     def get_state(self, board):
         """تبدیل حالت تخته به فرمت شبکه عصبی."""
-        config = load_config()
-        board_size = config["network_params"]["board_size"]
-        nn_params = config["advanced_nn_params"]
+        ai_config = load_ai_config()
+        player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
+        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
+        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
         state = np.zeros((nn_params["input_channels"], board_size, board_size))
         for row in range(board_size):
             for col in range(board_size):
-                piece = board[row, col]  # دسترسی به آرایه NumPy
+                piece = board[row, col]
                 if piece != 0:
-                    if piece > 0:  # بازیکن 1 (red)
+                    if piece > 0:
                         state[0, row, col] = 1
-                        if abs(piece) == 2:  # شاه قرمز
+                        if abs(piece) == 2:
                             state[2, row, col] = 1
-                    else:  # بازیکن 2 (black)
+                    else:
                         state[1, row, col] = 1
-                        if abs(piece) == 2:  # شاه سیاه
+                        if abs(piece) == 2:
                             state[2, row, col] = 1
         print(f"State created with shape: {state.shape}")
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
@@ -244,13 +243,14 @@ class AdvancedAI(BaseAI):
             print(f"Only one move available: {move}")
             return move
 
-        state = self.get_state(self.game.board.board)  # استفاده از board.board
+        state = self.get_state(self.game.board.board)
+        ai_config = load_ai_config()
+        player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
         print(f"State shape: {state.shape}")
         with torch.no_grad():
-            q_values = self.policy_net(state)
+            q_values = self.policy_net(state, ai_config, player_key)
             print(f"Q-values shape: {q_values.shape}")
-            config = load_config()
-            board_size = config["network_params"]["board_size"]
+            board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
             valid_q_values = {}
             for (position, move), skipped in valid_moves.items():
                 index = move[0] * board_size + move[1]
@@ -270,10 +270,10 @@ class AdvancedAI(BaseAI):
 
     def update(self, move, reward):
         """به‌روزرسانی مدل با تجربه جدید."""
-        state = self.get_state(self.game.board.board)  # استفاده از board.board
+        state = self.get_state(self.game.board.board)
         action = move[1] if move else None
         next_state = self.get_state(self.game.board.board)
-        done = self.game.game_over  # استفاده از ویژگی game_over
+        done = self.game.game_over
 
         self.remember(state, action, next_state, done)
         self.replay()
@@ -292,8 +292,9 @@ class AdvancedAI(BaseAI):
                 json.dump(self.episode_rewards, f)
 
     def replay(self):
-        config = load_config()
-        training_params = config[f"{self.ai_id}_training_params"]
+        ai_config = load_ai_config()
+        player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
+        training_params = ai_config[player_key]["params"]["training_params"]
         batch_size = training_params.get("batch_size", 128)
         if len(self.memory) < batch_size:
             return
@@ -307,14 +308,14 @@ class AdvancedAI(BaseAI):
         states, actions, rewards, next_states, dones = zip(*batch)
         states = torch.cat(states)
         next_states = torch.cat(next_states)
-        board_size = config["network_params"]["board_size"]
+        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
         actions = torch.tensor([(a[0] * board_size + a[1]) for a in actions if a], device=self.device)
         rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
         dones = torch.tensor(dones, dtype=torch.float32, device=self.device)
 
-        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
+        current_q_values = self.policy_net(states, ai_config, player_key).gather(1, actions.unsqueeze(1))
         with torch.no_grad():
-            max_next_q_values = self.target_net(next_states).max(1)[0]
+            max_next_q_values = self.target_net(next_states, ai_config, player_key).max(1)[0]
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
         loss = nn.MSELoss()(current_q_values.squeeze(), target_q_values)

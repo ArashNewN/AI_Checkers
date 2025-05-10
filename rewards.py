@@ -212,7 +212,7 @@ class RewardCalculator:
                         for c in range(BOARD_SIZE):
                             opponent = self.game.board.board[r, c]
                             if opponent != 0 and (opponent < 0) != self.game.turn:
-                                opponent_moves = self.game.get_valid_moves(r, c)
+                                opponent_moves = self.game.get_valid_moves(row, col)
                                 if any((row, col) in skipped for move, skipped in opponent_moves.items() if skipped):
                                     safety_penalty -= 1
         return safety_penalty

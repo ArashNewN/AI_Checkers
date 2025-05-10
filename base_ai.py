@@ -7,23 +7,20 @@ AI_METADATA = {
     "default_description": "هوش مصنوعی پایه با قابلیت‌های اولیه برای بازی شطرنج."
 }
 
-
 class BaseAI(ABC):
     """کلاس پایه انتزاعی برای هوش‌های مصنوعی در بازی شطرنج."""
 
-    def __init__(self, game, color: str, model_name: str, ai_id: str, settings: Optional[Dict] = None):
+    def __init__(self, game, model_name: str, ai_id: str, settings: Optional[Dict] = None):
         """
         مقداردهی اولیه هوش مصنوعی پایه.
 
         Args:
             game: شیء بازی (CheckersGame)
-            color: رنگ بازیکن (مثل 'red' یا 'black')
             model_name: نام مدل برای ذخیره/بارگذاری
-            al_id: شناسه منحصربه‌فرد برای AI (مثل 'player_1')
+            ai_id: شناسه منحصربه‌فرد برای AI (مثل 'ai_1' یا 'ai_2')
             settings: تنظیمات اختیاری از config.json
         """
         self.game = game
-        self.color = color
         self.model_name = model_name
         self.ai_id = ai_id
         self.settings = settings or {}

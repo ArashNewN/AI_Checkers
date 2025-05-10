@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
-from .game import Game
 from .settings import GameSettings
-from .config import save_config, load_config, load_ai_config, save_ai_config, LANGUAGES
+from .constants import LANGUAGES
+from .config import save_config, load_config, load_ai_config, save_ai_config, load_ai_specific_config, save_ai_specific_config, DEFAULT_AI_PARAMS
 from .utils import hex_to_rgb, rgb_to_hex
 import torch
 import os
@@ -11,11 +11,12 @@ import sys
 import importlib
 from pathlib import Path
 
+
 project_dir = Path(__file__).parent.parent
 if str(project_dir) not in sys.path:
     sys.path.append(str(project_dir))
 
-# تعریف استایل کلی برای برنامه
+
 def configure_styles():
     style = ttk.Style()
     style.configure("Custom.TButton", font=("Arial", 10), padding=5, background="#4CAF50", foreground="black")
@@ -23,6 +24,7 @@ def configure_styles():
     style.configure("TLabel", font=("Arial", 10))
     style.configure("TEntry", font=("Arial", 10))
     style.configure("TCombobox", font=("Arial", 10))
+
 
 class BaseWindow:
     def __init__(self, interface, root=None):
@@ -38,6 +40,7 @@ class BaseWindow:
         if self.is_open or self.window:
             return
         self.window = tk.Toplevel(self.root) if self.root else tk.Toplevel()
+        self.tk = self.window.tk  # تنظیم ویژگی tk
         self.window.title(title)
         width = width or self.config.get("settings_window_width", 400)
         height = height or self.config.get("settings_window_height", 300)
@@ -69,14 +72,17 @@ class BaseWindow:
                 except tk.TclError:
                     pass
 
+
 class SettingsWindow(BaseWindow):
     def __init__(self, interface, root=None):
         super().__init__(interface, root)
         self.temp_settings = GameSettings()
         self.copy_current_settings()
         self.ai_types = ["none"]
-        self.load_ai_config()
         self.entries = {}  # For advanced config entries
+        # لود تنظیمات AI
+        self.load_ai_config()
+        # ساخت رابط کاربری
 
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["settings"],
@@ -104,14 +110,17 @@ class SettingsWindow(BaseWindow):
 
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
+        # به‌روزرسانی منوهای کشویی بعد از ساخت تب‌ها
+        self.update_ai_dropdowns()
+
     def load_ai_config(self):
         """بارگذاری تنظیمات AI از ai_config.json با استفاده از تابع config.py"""
         ai_config = load_ai_config()
         self.ai_types = ["none"] + list(ai_config.get("ai_types", {}).keys())
         # به‌روزرسانی تنظیمات موقت با تنظیمات AI
         self.temp_settings.ai_configs = ai_config.get("ai_configs", {
-            "player_1": {"ai_type": "none", "ability_level": 5, "training_params": {}, "reward_weights": {}},
-            "player_2": {"ai_type": "none", "ability_level": 5, "training_params": {}, "reward_weights": {}}
+            "player_1": {"ai_type": "none", "ai_code": None, "ability_level": 5, "params": {}},
+            "player_2": {"ai_type": "none", "ai_code": None, "ability_level": 5, "params": {}}
         })
 
     def check_ai_module(self, ai_type):
@@ -122,100 +131,11 @@ class SettingsWindow(BaseWindow):
         print(f"check_ai_module: Checking ai_type '{ai_type}' in {ai_config['ai_types'].keys()}")
         return ai_type in ai_config["ai_types"]
 
-    def add_ai_type(self, ai_type, module_name, class_name, description):
-        """افزودن نوع AI جدید به ai_config.json"""
-        if not all([ai_type, module_name, class_name]):
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                LANGUAGES[self.settings.language]["fill_all_fields"]
-            )
-            return
-        if ai_type in self.ai_types:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                LANGUAGES[self.settings.language]["ai_type_exists"]
-            )
-            return
-        project_dir = Path(__file__).parent
-        module_path = project_dir / f"{module_name}.py"
-        if not module_path.exists():
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"ماژول {module_name}.py پیدا نشد"
-            )
-            return
-        try:
-            module = importlib.import_module(f"a.{module_name}")
-            if not hasattr(module, class_name):
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    f"کلاس {class_name} در ماژول {module_name} پیدا نشد"
-                )
-                return
-        except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در بررسی ماژول: {str(e)}"
-            )
-            return
-
-        ai_config = load_ai_config()
-        ai_config["ai_types"][ai_type] = {
-            "module": module_name,  # ذخیره نام ماژول بدون پیشوند
-            "class": class_name,
-            "description": description,
-            "training_params": ai_config["default_ai_params"]["training_params"],
-            "reward_weights": ai_config["default_ai_params"]["reward_weights"]
-        }
-        save_ai_config(ai_config)
-        self.ai_types.append(ai_type)
-        self.player_1_ai_menu["menu"].add_command(label=ai_type, command=lambda: self.player_1_ai_type_var.set(ai_type))
-        self.player_2_ai_menu["menu"].add_command(label=ai_type, command=lambda: self.player_2_ai_type_var.set(ai_type))
-        self.remove_ai_menu["menu"].delete(0, "end")
-        for ai in self.ai_types[1:]:
-            self.remove_ai_menu["menu"].add_command(label=ai, command=lambda x=ai: self.remove_ai_var.set(x))
-        messagebox.showinfo(
-            LANGUAGES[self.settings.language]["info"],
-            LANGUAGES[self.settings.language]["ai_added"]
-        )
-
-    def remove_ai_type(self, ai_type):
-        """حذف نوع AI از ai_config.json"""
-        if ai_type == "none":
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                "Cannot remove 'none' type"
-            )
-            return
-        if ai_type in [self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none"),
-                       self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")]:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"AI '{ai_type}' در حال استفاده است و نمی‌تواند حذف شود"
-            )
-            return
-        ai_config = load_ai_config()
-        if ai_type in ai_config["ai_types"]:
-            del ai_config["ai_types"][ai_type]
-            save_ai_config(ai_config)
-            self.ai_types.remove(ai_type)
-            self.update_ai_dropdowns()
-            messagebox.showinfo(
-                LANGUAGES[self.settings.language]["info"],
-                LANGUAGES[self.settings.language]["ai_removed"]
-            )
-        else:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"AI type '{ai_type}' not found"
-            )
-
     def update_ai_dropdowns(self):
         """بازسازی کامل منوهای کشویی انتخاب AI و به‌روزرسانی ai_config.json"""
         ai_config = load_ai_config()
         print(f"Updating AI dropdowns with ai_types: {ai_config['ai_types'].keys()}")
 
-        # بازسازی منوهای بازیکن ۱ و ۲
         self.player_1_ai_menu['menu'].delete(0, 'end')
         self.player_2_ai_menu['menu'].delete(0, 'end')
         for ai_type in self.ai_types:
@@ -234,16 +154,6 @@ class SettingsWindow(BaseWindow):
                 ]
             )
 
-        # منوی حذف AI (فقط اگر تعریف شده باشد)
-        if hasattr(self, 'remove_ai_menu'):
-            self.remove_ai_menu['menu'].delete(0, 'end')
-            for ai_type in self.ai_types[1:]:  # نادیده گرفتن "none"
-                self.remove_ai_menu['menu'].add_command(
-                    label=ai_type,
-                    command=lambda value=ai_type: self.remove_ai_var.set(value)
-                )
-
-        # تنظیم مقدار پیش‌فرض اگر AI انتخاب‌شده دیگر وجود ندارد
         if self.player_1_ai_type_var.get() not in self.ai_types:
             self.player_1_ai_type_var.set("none")
             self._update_player_ai_config("player_1", "none")
@@ -258,7 +168,6 @@ class SettingsWindow(BaseWindow):
         ai_config = load_ai_config()
         print(f"Updating {player} temp_settings to AI: {ai_type}")
 
-        # اعتبارسنجی ai_type
         if ai_type != "none" and ai_type not in ai_config["ai_types"]:
             print(f"Error: AI type '{ai_type}' not found in ai_config['ai_types']")
             messagebox.showerror(
@@ -268,180 +177,198 @@ class SettingsWindow(BaseWindow):
             self.player_1_ai_type_var.set("none") if player == "player_1" else self.player_2_ai_type_var.set("none")
             ai_type = "none"
 
-        # ذخیره ai_type در temp_settings
         self.temp_settings.ai_configs[player]["ai_type"] = ai_type
-
-        # اعمال تنظیمات پیش‌فرض در temp_settings
-        default_params = ai_config.get("default_ai_params", {
-            "ability_level": 5,
-            "training_params": {
-                "memory_size": 10000,
-                "batch_size": 128,
-                "learning_rate": 0.001,
-                "gamma": 0.99,
-                "epsilon_start": 1.0,
-                "epsilon_end": 0.01,
-                "epsilon_decay": 0.999
-            },
-            "reward_weights": {
-                "piece_difference": 1.0,
-                "king_bonus": 2.0,
-                "position_bonus": 0.1,
-                "capture_bonus": 1.0,
-                "multi_jump_bonus": 2.0,
-                "king_capture_bonus": 3.0,
-                "mobility_bonus": 0.1,
-                "safety_penalty": -0.5
-            }
-        })
         if ai_type != "none":
-            self.temp_settings.ai_configs[player]["ability_level"] = default_params["ability_level"]
-            self.temp_settings.ai_configs[player]["training_params"] = default_params["training_params"].copy()
-            self.temp_settings.ai_configs[player]["reward_weights"] = default_params["reward_weights"].copy()
+            code = ai_config["ai_types"][ai_type]["code"]
+            self.temp_settings.ai_configs[player]["ai_code"] = code
+            # لود تنظیمات از فایل کانفیگ مجزا
+            ai_specific_config = load_ai_specific_config(code)
+            self.temp_settings.ai_configs[player]["params"] = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
+            self.temp_settings.ai_configs[player]["ability_level"] = 5
         else:
-            self.temp_settings.ai_configs[player]["ability_level"] = default_params["ability_level"]
-            self.temp_settings.ai_configs[player]["training_params"] = {}
-            self.temp_settings.ai_configs[player]["reward_weights"] = {}
+            self.temp_settings.ai_configs[player]["ai_code"] = None
+            self.temp_settings.ai_configs[player]["params"] = {}
+            self.temp_settings.ai_configs[player]["ability_level"] = 5
 
         print(f"Updated {player} temp_settings: {self.temp_settings.ai_configs[player]}")
 
-    def add_new_ai(self):
-        """افزودن AI جدید به ai_config.json فقط با اطلاعات اولیه"""
-        ai_type = self.new_ai_type.get().strip()
-        description = self.new_description.get().strip()
-        module_name = self.ai_module_class_var.get().strip()
+    def search_ai_modules(self):
+        from a.base_ai import BaseAI
+        project_dir = Path(__file__).parent
+        print(f"دایرکتوری پروژه: {project_dir}")
+        root_dir = project_dir.parent
+        print(f"ریشه پروژه: {root_dir}")
+        if str(root_dir) not in sys.path:
+            sys.path.append(str(root_dir))
+        print(f"sys.path: {sys.path}")
 
-        # اعتبارسنجی ورودی‌ها
-        if not ai_type or not module_name:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                LANGUAGES[self.settings.language]["fill_all_fields"]
-            )
-            print(f"خطا: ai_type={ai_type}, module_name={module_name}")
-            return
-        if ai_type in self.ai_types:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                LANGUAGES[self.settings.language]["ai_type_exists"]
-            )
-            print(f"خطا: ai_type '{ai_type}' قبلاً وجود دارد")
-            return
+        ai_modules = []
+        for py_file in project_dir.glob("*.py"):
+            module_name = py_file.stem
+            if module_name in ["__init__", "windows", "windows n",
+                               "با تنظیمات حرفه ای ادونس کانفیگ و حفظ کلاس ستینگ ویندوز بدون ترجمهwindows"]:
+                print(f"نادیده گرفتن فایل: {module_name}")
+                continue
 
-        # پیدا کردن class_name از ai_modules
-        class_name = None
-        for module in self.ai_modules:
-            if module["display"] == module_name:
-                class_name = module.get("class_name")
-                break
-        if not class_name:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"ماژول {module_name} کلاس AI معتبری ندارد"
-            )
-            print(f"خطا: class_name برای {module_name} پیدا نشد")
-            return
+            try:
+                module = importlib.import_module(f"a.{module_name}")
+                print(f"ماژول a.{module_name} با موفقیت بارگذاری شد")
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if isinstance(attr, type) and issubclass(attr, BaseAI) and attr != BaseAI:
+                        metadata = getattr(attr, "metadata", None)
+                        if metadata and all(key in metadata for key in ["type", "description", "code"]):
+                            ai_modules.append({
+                                "display": module_name,
+                                "default_type": metadata["type"],
+                                "default_description": metadata["description"],
+                                "default_code": metadata["code"],
+                                "class_name": attr_name
+                            })
+                            print(f"ماژول شناسایی‌شده: {module_name}, کلاس: {attr_name}, متادیتا: {metadata}")
+                        else:
+                            print(f"ماژول a.{module_name} رد شد: AI_METADATA معتبر پیدا نشد")
+                else:
+                    print(f"هیچ کلاس AI معتبری در a.{module_name} پیدا نشد")
+            except Exception as e:
+                print(f"خطا در بارگذاری ماژول a.{module_name}: {str(e)}")
+                continue
 
-        full_module_name = f"a.{module_name}"
-        print(f"تلاش برای بارگذاری ماژول: {full_module_name}, کلاس: {class_name}")
-
-        # بررسی وجود ماژول و کلاس
-        try:
-            module = importlib.import_module(full_module_name)
-            if not hasattr(module, class_name):
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    f"کلاس {class_name} در ماژول {module_name} پیدا نشد"
-                )
-                print(f"خطا: کلاس {class_name} در {full_module_name} پیدا نشد")
-                return
-        except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در بارگذاری ماژول {module_name}: {str(e)}"
-            )
-            print(f"خطا در بارگذاری {full_module_name}: {str(e)}")
-            return
-
-        # بارگذاری و به‌روزرسانی ai_config
+        self.ai_modules = ai_modules
+        # اضافه کردن ماژول‌های پیدا‌شده به ai_config.json
         ai_config = load_ai_config()
-        ai_config["ai_types"][ai_type] = {
-            "module": full_module_name,
-            "class": class_name,
-            "description": description
+        for module in ai_modules:
+            ai_type = module["default_type"]
+            code = module["default_code"]
+            used_codes = {ai.get("code") for ai in ai_config["available_ais"]}
+            if ai_type not in ai_config["ai_types"] and code not in used_codes:
+                ai_config["ai_types"][ai_type] = {
+                    "module": f"a.{module['display']}",
+                    "class": module["class_name"],
+                    "description": module["default_description"],
+                    "code": code
+                }
+                ai_config["available_ais"].append({
+                    "type": ai_type,
+                    "module": f"a.{module['display']}",
+                    "class": module["class_name"],
+                    "code": code
+                })
+                # ساخت فایل کانفیگ مجزا
+                save_ai_specific_config(code, {
+                    "player_1": DEFAULT_AI_PARAMS.copy(),
+                    "player_2": DEFAULT_AI_PARAMS.copy()
+                })
+        save_ai_config(ai_config)
+        self.ai_types = ["none"] + list(ai_config["ai_types"].keys())
+        self.update_ai_dropdowns()
+
+    def setup_ai_tab(self, notebook):
+        ai_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(ai_frame, text=LANGUAGES[self.settings.language]["ai_settings_tab"])
+
+        # جدول برای نمایش AI‌های موجود
+        self.ai_list = ttk.Treeview(ai_frame, columns=("Type", "Code", "Description"), show="headings", height=4)
+        self.ai_list.heading("Type", text=LANGUAGES[self.settings.language]["ai_type"])
+        self.ai_list.heading("Code", text=LANGUAGES[self.settings.language]["ai_code"])
+        self.ai_list.heading("Description", text=LANGUAGES[self.settings.language]["description"])
+        self.ai_list.pack(fill="both", expand=False, pady=5)
+
+        # بخش AI Players
+        ai_players_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_players"], padding=10)
+        ai_players_frame.pack(fill="x", pady=5)
+
+        # Player 1: AI Type و Ability
+        player_1_container = ttk.Frame(ai_players_frame)
+        player_1_container.pack(fill="x", pady=2)
+        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["player_1_ai"]).pack(side="left", padx=5)
+        player_1_ai_type = self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none")
+        if player_1_ai_type not in self.ai_types:
+            player_1_ai_type = "none"
+        self.player_1_ai_type_var = tk.StringVar(value=player_1_ai_type)
+        self.player_1_ai_menu = ttk.OptionMenu(player_1_container, self.player_1_ai_type_var,
+                                               player_1_ai_type, *self.ai_types)
+        self.player_1_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
+        self.player_1_ai_menu["menu"].config(font=("Arial", 10))
+        self.player_1_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_1",
+                                                                                         self.player_1_ai_type_var.get()))
+
+        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
+        ability_mapping = {
+            1: "very_weak",
+            3: "weak",
+            5: "medium",
+            7: "strong",
+            9: "very_strong"
         }
-        try:
-            save_ai_config(ai_config)
-            print(f"AI جدید ذخیره شد: {ai_type}")
-        except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در ذخیره AI جدید: {str(e)}"
-            )
-            print(f"خطا در ذخیره ai_config: {str(e)}")
-            return
+        player_1_ability = self.temp_settings.ai_configs.get("player_1", {}).get("ability_level", 5)
+        self.player_1_ability_var = tk.StringVar(
+            value=LANGUAGES[self.settings.language][ability_mapping.get(player_1_ability, "medium")])
+        self.player_1_ability_menu = ttk.OptionMenu(
+            player_1_container, self.player_1_ability_var, self.player_1_ability_var.get(),
+            LANGUAGES[self.settings.language]["very_weak"],
+            LANGUAGES[self.settings.language]["weak"],
+            LANGUAGES[self.settings.language]["medium"],
+            LANGUAGES[self.settings.language]["strong"],
+            LANGUAGES[self.settings.language]["very_strong"],
+            command=lambda _: self.update_ability_levels("player_1")
+        )
+        self.player_1_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
+        self.player_1_ability_menu["menu"].config(font=("Arial", 10))
 
-        # به‌روزرسانی self.ai_types
-        if not hasattr(self, 'ai_types') or not self.ai_types:
-            self.ai_types = ["none"]
-        if ai_type not in self.ai_types:
-            self.ai_types.append(ai_type)
-            print(f"AI {ai_type} به self.ai_types اضافه شد: {self.ai_types}")
+        # Player 2: AI Type و Ability
+        player_2_container = ttk.Frame(ai_players_frame)
+        player_2_container.pack(fill="x", pady=2)
+        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["player_2_ai"]).pack(side="left", padx=5)
+        player_2_ai_type = self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")
+        if player_2_ai_type not in self.ai_types:
+            player_2_ai_type = "none"
+        self.player_2_ai_type_var = tk.StringVar(value=player_2_ai_type)
+        self.player_2_ai_menu = ttk.OptionMenu(player_2_container, self.player_2_ai_type_var,
+                                               player_2_ai_type, *self.ai_types)
+        self.player_2_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
+        self.player_2_ai_menu["menu"].config(font=("Arial", 10))
+        self.player_2_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_2",
+                                                                                         self.player_2_ai_type_var.get()))
 
-        # به‌روزرسانی رابط کاربری
-        try:
-            self.update_ai_dropdowns()
-            self.update_ai_list()
-            messagebox.showinfo(
-                LANGUAGES[self.settings.language]["info"],
-                LANGUAGES[self.settings.language]["ai_added"]
-            )
-            print(f"AI {ai_type} به منوی کشویی و لیست اضافه شد")
-        except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در به‌روزرسانی رابط کاربری: {str(e)}"
-            )
-            print(f"خطا در به‌روزرسانی رابط کاربری: {str(e)}")
+        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
+        player_2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
+        self.player_2_ability_var = tk.StringVar(
+            value=LANGUAGES[self.settings.language][ability_mapping.get(player_2_ability, "medium")])
+        self.player_2_ability_menu = ttk.OptionMenu(
+            player_2_container, self.player_2_ability_var, self.player_2_ability_var.get(),
+            LANGUAGES[self.settings.language]["very_weak"],
+            LANGUAGES[self.settings.language]["weak"],
+            LANGUAGES[self.settings.language]["medium"],
+            LANGUAGES[self.settings.language]["strong"],
+            LANGUAGES[self.settings.language]["very_strong"],
+            command=lambda _: self.update_ability_levels("player_2")
+        )
+        self.player_2_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
+        self.player_2_ability_menu["menu"].config(font=("Arial", 10))
 
-    def remove_selected_ai(self):
-        """حذف AI انتخاب‌شده از ai_config.json"""
-        selected = self.ai_list.selection()
-        if not selected:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                LANGUAGES[self.settings.language]["no_ai_selected"]
-            )
-            return
+        # بخش AI Pause Time
+        pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
+        pause_frame.pack(fill="x", pady=5)
+        ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
+        self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
+        self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time", self.ai_pause_var.get()))
+        ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10).pack(anchor="w", pady=5)
 
-        ai_type = self.ai_list.item(selected[0])["values"][0]
-        if ai_type in [self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none"),
-                       self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")]:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"AI '{ai_type}' در حال استفاده است و نمی‌تواند حذف شود"
-            )
-            return
+        self.update_ai_list()
+        self.search_ai_modules()
 
-        if messagebox.askyesno(
-                LANGUAGES[self.settings.language]["warning"],
-                f"آیا مطمئن هستید که می‌خواهید AI '{ai_type}' را حذف کنید؟"
-        ):
-            ai_config = load_ai_config()
-            if ai_type in ai_config["ai_types"]:
-                del ai_config["ai_types"][ai_type]
-                save_ai_config(ai_config)
-                self.ai_types = ["none"] + [t for t in ai_config["ai_types"].keys()]
-                self.update_ai_dropdowns()  # به‌روزرسانی منوهای کشویی
-                self.update_ai_list()
-                messagebox.showinfo(
-                    LANGUAGES[self.settings.language]["info"],
-                    LANGUAGES[self.settings.language]["ai_removed"]
-                )
-            else:
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    f"AI '{ai_type}' پیدا نشد"
-                )
+    def update_ai_list(self):
+        """به‌روزرسانی لیست AIها با نمایش نام، کد دوحرفی، و توضیحات"""
+        self.ai_list.delete(*self.ai_list.get_children())
+        ai_config = load_ai_config()
+        for ai_type in self.ai_types:
+            if ai_type == "none":
+                continue
+            ai_info = ai_config["ai_types"].get(ai_type, {})
+            description = ai_info.get("description", "")
+            code = ai_info.get("code", "")
+            self.ai_list.insert("", "end", values=(ai_type, code, description))
 
     def copy_current_settings(self):
         """کپی تنظیمات فعلی به temp_settings"""
@@ -458,6 +385,86 @@ class SettingsWindow(BaseWindow):
             "player_1": {"ai_type": "none", "ability_level": 5, "training_params": {}, "reward_weights": {}},
             "player_2": {"ai_type": "none", "ability_level": 5, "training_params": {}, "reward_weights": {}}
         })
+
+    def update_ability_levels(self, player):
+        """به‌روزرسانی سطح توانایی AI برای بازیکن مشخص"""
+        ability_levels = {
+            LANGUAGES[self.settings.language]["very_weak"]: 1,
+            LANGUAGES[self.settings.language]["weak"]: 3,
+            LANGUAGES[self.settings.language]["medium"]: 5,
+            LANGUAGES[self.settings.language]["strong"]: 7,
+            LANGUAGES[self.settings.language]["very_strong"]: 9
+        }
+        if player == "player_1":
+            selected_level = self.player_1_ability_var.get()
+            self.temp_settings.ai_configs["player_1"]["ability_level"] = ability_levels.get(selected_level, 5)
+        elif player == "player_2":
+            selected_level = self.player_2_ability_var.get()
+            self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
+
+    def update_temp_settings(self, key, value):
+        """Update temp_settings with the new value for the given key."""
+        if key == "language":
+            self.temp_settings.language = value
+        elif key == "game_mode":
+            self.temp_settings.game_mode = value
+            self.toggle_ai_vs_ai_options()
+        elif key == "ai_vs_ai_mode":
+            self.temp_settings.ai_vs_ai_mode = value
+            self.toggle_repeat_options()
+        elif key == "repeat_hands":
+            self.temp_settings.repeat_hands = value
+        elif key == "player_starts":
+            self.temp_settings.player_starts = value
+        elif key == "use_timer":
+            self.temp_settings.use_timer = value
+            self.toggle_timer()
+        elif key == "game_time":
+            self.temp_settings.game_time = value
+        elif key == "piece_style":
+            self.temp_settings.piece_style = value
+        elif key == "player_1_color":
+            self.temp_settings.player_1_color = value
+        elif key == "player_2_color":
+            self.temp_settings.player_2_color = value
+        elif key == "board_color_1":
+            self.temp_settings.board_color_1 = value
+        elif key == "board_color_2":
+            self.temp_settings.board_color_2 = value
+        elif key == "sound_enabled":
+            self.temp_settings.sound_enabled = value
+        elif key == "player_1_ai_type":
+            self.temp_settings.player_1_ai_type = value
+            self.temp_settings.ai_configs["player_1"] = {
+                "ai_type": value,
+                "ai_code": None,
+                "ability_level": self.temp_settings.ai_configs.get("player_1", {}).get("ability_level", 5),
+                "params": {}
+            }
+            if value != "none":
+                ai_config = load_ai_config()
+                if value in ai_config["ai_types"]:
+                    self.temp_settings.ai_configs["player_1"]["ai_code"] = ai_config["ai_types"][value]["code"]
+                    ai_specific_config = load_ai_specific_config(self.temp_settings.ai_configs["player_1"]["ai_code"])
+                    self.temp_settings.ai_configs["player_1"]["params"] = ai_specific_config.get("player_1",
+                                                                                                 DEFAULT_AI_PARAMS.copy())
+        elif key == "player_2_ai_type":
+            self.temp_settings.player_2_ai_type = value
+            self.temp_settings.ai_configs["player_2"] = {
+                "ai_type": value,
+                "ai_code": None,
+                "ability_level": self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5),
+                "params": {}
+            }
+            if value != "none":
+                ai_config = load_ai_config()
+                if value in ai_config["ai_types"]:
+                    self.temp_settings.ai_configs["player_2"]["ai_code"] = ai_config["ai_types"][value]["code"]
+                    ai_specific_config = load_ai_specific_config(self.temp_settings.ai_configs["player_2"]["ai_code"])
+                    self.temp_settings.ai_configs["player_2"]["params"] = ai_specific_config.get("player_2",
+                                                                                                 DEFAULT_AI_PARAMS.copy())
+        elif key == "ai_pause_time":
+            self.temp_settings.ai_pause_time = value
 
     def setup_game_tab(self, notebook):
         game_frame = ttk.Frame(notebook, padding="10")
@@ -551,46 +558,6 @@ class SettingsWindow(BaseWindow):
         self.timer_combo.pack(side="left", padx=5)
         if self.temp_settings.use_timer:
             self.timer_duration_frame.pack(side="left", padx=5)
-
-    def update_temp_settings(self, key, value):
-        """به‌روزرسانی temp_settings با مقدار جدید"""
-        if key == "language":
-            self.temp_settings.language = value
-        elif key == "game_mode":
-            self.temp_settings.game_mode = value
-            self.toggle_ai_vs_ai_options()
-        elif key == "ai_vs_ai_mode":
-            self.temp_settings.ai_vs_ai_mode = value
-            self.toggle_repeat_options()
-        elif key == "repeat_hands":
-            self.temp_settings.repeat_hands = value
-        elif key == "player_starts":
-            self.temp_settings.player_starts = value
-        elif key == "use_timer":
-            self.temp_settings.use_timer = value
-            self.toggle_timer()
-        elif key == "game_time":
-            self.temp_settings.game_time = value
-        elif key == "piece_style":
-            self.temp_settings.piece_style = value
-        elif key == "player_1_color":
-            self.temp_settings.player_1_color = value
-        elif key == "player_2_color":
-            self.temp_settings.player_2_color = value
-        elif key == "board_color_1":
-            self.temp_settings.board_color_1 = value
-        elif key == "board_color_2":
-            self.temp_settings.board_color_2 = value
-        elif key == "sound_enabled":
-            self.temp_settings.sound_enabled = value
-        elif key == "player_1_ai_type":
-            self.temp_settings.ai_configs["player_1"]["ai_type"] = value
-            print(f"Updated temp_settings player_1_ai_type: {value}")
-        elif key == "player_2_ai_type":
-            self.temp_settings.ai_configs["player_2"]["ai_type"] = value
-            print(f"Updated temp_settings player_2_ai_type: {value}")
-        elif key == "ai_pause_time":
-            self.temp_settings.ai_pause_time = value
 
     def setup_design_tab(self, notebook):
         design_frame = ttk.Frame(notebook, padding="10")
@@ -697,307 +664,6 @@ class SettingsWindow(BaseWindow):
                        command=lambda p=piece, v=var: self.upload_image(p, v)).pack(side="left", padx=5)
             self.entries[piece] = var
 
-    def update_piece_preview(self):
-        self.preview_canvas.delete("all")
-        style = self.piece_style_var.get()
-        color = hex_to_rgb(self.player_1_color_var.get())
-        center_x, center_y = 25, 25
-        radius = 20
-
-        if style == "circle":
-            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
-                                            center_x + radius, center_y + radius,
-                                            fill=rgb_to_hex(color))
-        elif style == "outlined_circle":
-            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
-                                            center_x + radius, center_y + radius,
-                                            fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "square":
-            self.preview_canvas.create_rectangle(center_x - radius, center_y - radius,
-                                                 center_x + radius, center_y + radius,
-                                                 fill=rgb_to_hex(color))
-        elif style == "diamond":
-            points = [
-                center_x, center_y - radius,
-                          center_x + radius, center_y,
-                center_x, center_y + radius,
-                          center_x - radius, center_y
-            ]
-            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "star":
-            points = [
-                center_x, center_y - radius,
-                          center_x + radius * 0.3, center_y - radius * 0.3,
-                          center_x + radius, center_y,
-                          center_x + radius * 0.3, center_y + radius * 0.3,
-                center_x, center_y + radius,
-                          center_x - radius * 0.3, center_y + radius * 0.3,
-                          center_x - radius, center_y,
-                          center_x - radius * 0.3, center_y - radius * 0.3
-            ]
-            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "custom":
-            self.preview_canvas.create_text(center_x, center_y, text="Custom", fill="black")
-
-    def upload_image(self, piece, var):
-        from tkinter import filedialog
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
-        if file_path:
-            var.set(file_path)
-            self.update_temp_settings(f"{piece}_image", file_path)
-
-    def save(self):
-        self.temp_settings.player_1_color = hex_to_rgb(self.player_1_color_var.get())
-        self.temp_settings.player_2_color = hex_to_rgb(self.player_2_color_var.get())
-        self.temp_settings.board_color_1 = hex_to_rgb(self.board_color_1_var.get())
-        self.temp_settings.board_color_2 = hex_to_rgb(self.board_color_2_var.get())
-        self.temp_settings.piece_style = self.piece_style_var.get()
-        self.temp_settings.sound_enabled = self.sound_var.get()
-        for piece in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
-            setattr(self.temp_settings, f"{piece}_image", self.entries[piece].get())
-        self.interface.apply_pending_settings(self.temp_settings.__dict__)
-        self.close()
-
-    def search_ai_modules(self):
-        """جستجوی خودکار ماژول‌های AI در دایرکتوری پروژه"""
-        project_dir = Path(__file__).parent
-        root_dir = project_dir.parent
-        print(f"دایرکتوری پروژه: {project_dir}")
-        print(f"ریشه پروژه: {root_dir}")
-
-        # تنظیم sys.path
-        if str(project_dir) not in sys.path:
-            sys.path.append(str(project_dir))
-        if str(root_dir) not in sys.path:
-            sys.path.append(str(root_dir))
-        print(f"sys.path: {sys.path}")
-
-        modules = []
-        print(f"فایل‌های .py در {project_dir}: {[f.name for f in project_dir.glob('*.py')]}")
-
-        for py_file in project_dir.glob("*.py"):
-            module_name = py_file.stem
-            if module_name.startswith("__") or module_name == "base_ai" or not module_name.isidentifier():
-                print(f"نادیده گرفتن فایل: {module_name}")
-                continue
-            full_module_name = f"a.{module_name}"
-            print(f"تلاش برای بارگذاری ماژول: {full_module_name}")
-
-            try:
-                module = importlib.import_module(full_module_name)
-                print(f"ماژول {full_module_name} با موفقیت بارگذاری شد")
-                found_ai_class = False
-                class_name = None
-                for name, obj in module.__dict__.items():
-                    if isinstance(obj, type) and name.endswith("AI") and name != "BaseAI":
-                        class_name = name
-                        found_ai_class = True
-                        break  # فقط اولین کلاس AI معتبر رو می‌گیریم
-                if not found_ai_class:
-                    print(f"هیچ کلاس AI معتبری در {full_module_name} پیدا نشد")
-                    continue
-
-                # خواندن متادیتا از AI_METADATA
-                try:
-                    metadata = getattr(module, "AI_METADATA", None)
-                    if not metadata:
-                        print(f"متادیتا در {full_module_name} پیدا نشد، استفاده از مقادیر پیش‌فرض")
-                        metadata = {
-                            "default_type": module_name,
-                            "default_description": f"هوش مصنوعی {module_name}"
-                        }
-                    default_type = metadata.get("default_type", module_name)
-                    default_description = metadata.get("default_description", f"هوش مصنوعی {module_name}")
-                    if not any(m["default_type"] == default_type for m in modules):
-                        modules.append({
-                            "display": module_name,
-                            "default_type": default_type,
-                            "default_description": default_description,
-                            "class_name": class_name
-                        })
-                        print(f"ماژول شناسایی‌شده: {module_name}, کلاس: {class_name}, متادیتا: {metadata}")
-                except Exception as e:
-                    print(f"خطا در خواندن متادیتا برای {full_module_name}: {e}")
-                    continue
-
-            except SyntaxError as e:
-                print(f"خطای سینتکس در {full_module_name}: {e} (خط {e.lineno})")
-            except ImportError as e:
-                print(f"خطا در بارگذاری ماژول {full_module_name}: {e}")
-            except Exception as e:
-                print(f"خطای غیرمنتظره در {full_module_name}: {e}")
-
-        # تنظیم منوی کشویی
-        self.ai_module_class_combo["values"] = [m["display"] for m in modules] if modules else ["هیچ ماژولی پیدا نشد"]
-        if modules:
-            self.ai_module_class_var.set(modules[0]["display"])
-            self.new_ai_type.set(modules[0]["default_type"])
-            self.new_description.set(modules[0]["default_description"])
-            print(f"منوی کشویی تنظیم شد: {[m['display'] for m in modules]}")
-        else:
-            self.ai_module_class_var.set("")
-            self.new_ai_type.set("")
-            self.new_description.set("")
-            print("هیچ ماژولی برای منوی کشویی پیدا نشد")
-        self.ai_modules = modules
-        print(f"ماژول‌های نهایی شناسایی‌شده: {[m['display'] for m in modules]}")
-
-    def update_ai_fields(self, event=None):
-        """به‌روزرسانی فیلدهای نوع و توضیحات بر اساس ماژول انتخاب‌شده"""
-        selected = self.ai_module_class_var.get()
-        for module in getattr(self, "ai_modules", []):
-            if module["display"] == selected:
-                self.new_ai_type.set(module["default_type"])
-                self.new_description.set(module["default_description"])
-                break
-        else:
-            self.new_ai_type.set("")
-            self.new_description.set("")
-
-    def update_ai_list(self):
-        self.ai_list.delete(*self.ai_list.get_children())
-        ai_config = load_ai_config()
-        for ai_type in self.ai_types:
-            if ai_type == "none":
-                continue
-            ai_info = ai_config["ai_types"].get(ai_type, {})
-            description = ai_info.get("description", "")
-            self.ai_list.insert("", "end", values=(ai_type, description))
-
-    def setup_ai_tab(self, notebook):
-        ai_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(ai_frame, text=LANGUAGES[self.settings.language]["ai_settings_tab"])
-
-        # جدول برای نمایش AI‌های موجود
-        self.ai_list = ttk.Treeview(ai_frame, columns=("Type", "Description", "Status"), show="headings", height=4)
-        self.ai_list.heading("Type", text=LANGUAGES[self.settings.language]["ai_type"])
-        self.ai_list.heading("Description", text=LANGUAGES[self.settings.language]["description"])
-        self.ai_list.heading("Status", text=LANGUAGES[self.settings.language]["status"])
-        self.ai_list.pack(fill="both", expand=False, pady=5)
-
-        # منوی کشویی برای حذف AI
-        remove_container = ttk.Frame(ai_frame)
-        remove_container.pack(fill="x", pady=5)
-        ttk.Label(remove_container, text=LANGUAGES[self.settings.language]["remove_ai"]).pack(side="left", padx=5)
-        self.remove_ai_var = tk.StringVar(value="")
-        self.remove_ai_menu = ttk.OptionMenu(remove_container, self.remove_ai_var, "", *self.ai_types[1:])
-        self.remove_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
-        self.remove_ai_menu["menu"].config(font=("Arial", 10))
-        ttk.Button(ai_frame, text=LANGUAGES[self.settings.language]["remove_selected"],
-                   command=self.remove_selected_ai, style="Custom.TButton").pack(pady=5)
-
-        # فرم افزودن AI جدید
-        form_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["add_new_ai"], padding=10)
-        form_frame.pack(fill="x", pady=5)
-
-        ttk.Label(form_frame, text=LANGUAGES[self.settings.language]["select_module_class"]).pack(anchor="w")
-        self.ai_module_class_var = tk.StringVar()
-        self.ai_module_class_combo = ttk.Combobox(form_frame, textvariable=self.ai_module_class_var, state="readonly")
-        self.ai_module_class_combo.pack(fill="x", pady=5)
-        self.ai_module_class_combo.bind("<<ComboboxSelected>>", self.update_ai_fields)
-
-        ttk.Label(form_frame, text=LANGUAGES[self.settings.language]["new_ai_type"]).pack(anchor="w")
-        self.new_ai_type = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.new_ai_type).pack(fill="x", pady=5)
-
-        ttk.Label(form_frame, text=LANGUAGES[self.settings.language]["new_description"]).pack(anchor="w")
-        self.new_description = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=self.new_description).pack(fill="x", pady=5)
-
-        button_container = ttk.Frame(form_frame)
-        button_container.pack(fill="x", pady=5)
-
-        ttk.Button(button_container, text=LANGUAGES[self.settings.language]["search_modules"],
-                   command=self.search_ai_modules, style="Custom.TButton").pack(side="left", padx=5)
-        ttk.Button(button_container, text=LANGUAGES[self.settings.language]["add_ai"],
-                   command=self.add_new_ai, style="Custom.TButton").pack(side="left", padx=5)
-
-        # بخش AI Players
-        ai_players_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_players"], padding=10)
-        ai_players_frame.pack(fill="x", pady=5)
-
-        # Player 1: AI Type و Ability
-        player_1_container = ttk.Frame(ai_players_frame)
-        player_1_container.pack(fill="x", pady=2)
-
-        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["player_1_ai"]).pack(side="left", padx=5)
-        player_1_ai_type = self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none")
-        if player_1_ai_type not in self.ai_types:
-            player_1_ai_type = "none"
-        self.player_1_ai_type_var = tk.StringVar(value=player_1_ai_type)
-        self.player_1_ai_menu = ttk.OptionMenu(player_1_container, self.player_1_ai_type_var,
-                                               player_1_ai_type, *self.ai_types)
-        self.player_1_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
-        self.player_1_ai_menu["menu"].config(font=("Arial", 10))
-        self.player_1_ai_type_var.trace("w", lambda *args: self.update_temp_settings("player_1_ai_type",
-                                                                                     self.player_1_ai_type_var.get()))
-
-        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
-        ability_mapping = {
-            1: "very_weak",
-            3: "weak",
-            5: "medium",
-            7: "strong",
-            9: "very_strong"
-        }
-        player_1_ability = self.temp_settings.ai_configs.get("player_1", {}).get("ability_level", 5)
-        self.player_1_ability_var = tk.StringVar(
-            value=LANGUAGES[self.settings.language][ability_mapping.get(player_1_ability, "medium")])
-        self.player_1_ability_menu = ttk.OptionMenu(
-            player_1_container, self.player_1_ability_var, self.player_1_ability_var.get(),
-            LANGUAGES[self.settings.language]["very_weak"],
-            LANGUAGES[self.settings.language]["weak"],
-            LANGUAGES[self.settings.language]["medium"],
-            LANGUAGES[self.settings.language]["strong"],
-            LANGUAGES[self.settings.language]["very_strong"],
-            command=lambda _: self.update_ability_levels("player_1")
-        )
-        self.player_1_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
-        self.player_1_ability_menu["menu"].config(font=("Arial", 10))
-
-        # Player 2: AI Type و Ability
-        player_2_container = ttk.Frame(ai_players_frame)
-        player_2_container.pack(fill="x", pady=2)
-
-        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["player_2_ai"]).pack(side="left", padx=5)
-        player_2_ai_type = self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")
-        if player_2_ai_type not in self.ai_types:
-            player_2_ai_type = "none"
-        self.player_2_ai_type_var = tk.StringVar(value=player_2_ai_type)
-        self.player_2_ai_menu = ttk.OptionMenu(player_2_container, self.player_2_ai_type_var,
-                                               player_2_ai_type, *self.ai_types)
-        self.player_2_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
-        self.player_2_ai_menu["menu"].config(font=("Arial", 10))
-        self.player_2_ai_type_var.trace("w", lambda *args: self.update_temp_settings("player_2_ai_type",
-                                                                                     self.player_2_ai_type_var.get()))
-
-        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
-        player_2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
-        self.player_2_ability_var = tk.StringVar(
-            value=LANGUAGES[self.settings.language][ability_mapping.get(player_2_ability, "medium")])
-        self.player_2_ability_menu = ttk.OptionMenu(
-            player_2_container, self.player_2_ability_var, self.player_2_ability_var.get(),
-            LANGUAGES[self.settings.language]["very_weak"],
-            LANGUAGES[self.settings.language]["weak"],
-            LANGUAGES[self.settings.language]["medium"],
-            LANGUAGES[self.settings.language]["strong"],
-            LANGUAGES[self.settings.language]["very_strong"],
-            command=lambda _: self.update_ability_levels("player_2")
-        )
-        self.player_2_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
-        self.player_2_ability_menu["menu"].config(font=("Arial", 10))
-
-        # بخش AI Pause Time
-        pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
-        pause_frame.pack(fill="x", pady=5)
-        ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
-        self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
-        self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time", self.ai_pause_var.get()))
-        ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10).pack(anchor="w", pady=5)
-
-        self.update_ai_list()
-        self.search_ai_modules()
-
     def setup_player_tab(self, notebook):
         player_frame = ttk.Frame(notebook, padding="10")
         notebook.add(player_frame, text=LANGUAGES[self.settings.language]["player_tab"])
@@ -1033,15 +699,11 @@ class SettingsWindow(BaseWindow):
         advanced_frame = ttk.Frame(notebook, padding="10")
         notebook.add(advanced_frame, text=LANGUAGES[self.settings.language]["advanced_settings_tab"])
 
-        ttk.Label(advanced_frame, text=LANGUAGES[self.settings.language]["advanced_settings_warning"],
-                  wraplength=450, justify="center").pack(pady=10)
-
         ttk.Button(advanced_frame, text=LANGUAGES[self.settings.language]["open_advanced_config"],
-                   command=self.open_advanced_config_window,
-                   style="Custom.TButton").pack(pady=10)
+                   command=self.open_advanced_config_window, style="Custom.TButton").pack(pady=10)
 
     def open_advanced_config_window(self):
-        AdvancedConfigWindow(self, self.settings, self.temp_settings, self.settings.language)
+        AdvancedConfigWindow(self.window, self.settings, self.temp_settings, self.settings.language)
 
     def save_advanced_settings(self):
         """ذخیره تنظیمات پیشرفته برای AI در ai_config.json"""
@@ -1098,22 +760,6 @@ class SettingsWindow(BaseWindow):
                 LANGUAGES[self.settings.language]["error"],
                 f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}"
             )
-
-    def update_ability_levels(self, player):
-        """به‌روزرسانی سطح توانایی AI برای بازیکن مشخص"""
-        ability_levels = {
-            LANGUAGES[self.settings.language]["very_weak"]: 1,
-            LANGUAGES[self.settings.language]["weak"]: 3,
-            LANGUAGES[self.settings.language]["medium"]: 5,
-            LANGUAGES[self.settings.language]["strong"]: 7,
-            LANGUAGES[self.settings.language]["very_strong"]: 9
-        }
-        if player == "player_1":
-            selected_level = self.player_1_ability_var.get()
-            self.temp_settings.ai_configs["player_1"]["ability_level"] = ability_levels.get(selected_level, 5)
-        elif player == "player_2":
-            selected_level = self.player_2_ability_var.get()
-            self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
 
     def toggle_ai_vs_ai_options(self):
         if self.play_with_var.get() == "ai_vs_ai":
@@ -1177,31 +823,79 @@ class SettingsWindow(BaseWindow):
             elif piece_type == "player_2_king":
                 self.temp_settings.player_2_king_image = file_path
 
+    def update_piece_preview(self):
+        self.preview_canvas.delete("all")
+        style = self.piece_style_var.get()
+        color = hex_to_rgb(self.player_1_color_var.get())
+        center_x, center_y = 25, 25
+        radius = 20
+
+        if style == "circle":
+            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
+                                            center_x + radius, center_y + radius,
+                                            fill=rgb_to_hex(color))
+        elif style == "outlined_circle":
+            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
+                                            center_x + radius, center_y + radius,
+                                            fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "square":
+            self.preview_canvas.create_rectangle(center_x - radius, center_y - radius,
+                                                 center_x + radius, center_y + radius,
+                                                 fill=rgb_to_hex(color))
+        elif style == "diamond":
+            points = [
+                center_x, center_y - radius,
+                          center_x + radius, center_y,
+                center_x, center_y + radius,
+                          center_x - radius, center_y
+            ]
+            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "star":
+            points = [
+                center_x, center_y - radius,
+                          center_x + radius * 0.3, center_y - radius * 0.3,
+                          center_x + radius, center_y,
+                          center_x + radius * 0.3, center_y + radius * 0.3,
+                center_x, center_y + radius,
+                          center_x - radius * 0.3, center_y + radius * 0.3,
+                          center_x - radius, center_y,
+                          center_x - radius * 0.3, center_y - radius * 0.3
+            ]
+            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
+        elif style == "custom":
+            self.preview_canvas.create_text(center_x, center_y, text="Custom", fill="black")
+
     def save(self):
-        """ذخیره تنظیمات در config.json و ai_config.json"""
+        """ذخیره تنظیمات در config.json و فایل‌های کانفیگ AI"""
         try:
             pause_time = self.ai_pause_var.get() if hasattr(self, 'ai_pause_var') else self.temp_settings.ai_pause_time
             if not 0 <= pause_time <= 5000:
-                messagebox.showerror(LANGUAGES[self.settings.language]["error"],
-                                     LANGUAGES[self.settings.language]["ai_pause_error"])
+                messagebox.showerror(
+                    LANGUAGES[self.settings.language]["error"],
+                    LANGUAGES[self.settings.language]["ai_pause_error"],
+                    parent=self.window
+                )
                 return
 
-            repeat_hands = self.hmh_var.get()
+            repeat_hands = self.hmh_var.get() if hasattr(self, 'hmh_var') else self.temp_settings.repeat_hands
             if self.ai_vs_ai_var.get() == "repeat_game" and not 1 <= repeat_hands <= 1000:
-                messagebox.showerror(LANGUAGES[self.settings.language]["error"],
-                                     LANGUAGES[self.settings.language]["invalid_number_hands"])
+                messagebox.showerror(
+                    LANGUAGES[self.settings.language]["error"],
+                    LANGUAGES[self.settings.language]["invalid_number_hands"],
+                    parent=self.window
+                )
                 return
 
             ai_config = load_ai_config()
-            print(f"save: Loaded ai_config['ai_types']: {ai_config['ai_types'].keys()}")
-
-            for ai_type, var in [(self.player_1_ai_type_var.get(), "AI بازیکن ۱"),
-                                 (self.player_2_ai_type_var.get(), "AI بازیکن ۲")]:
+            for ai_type, var in [
+                (self.player_1_ai_type_var.get(), LANGUAGES[self.settings.language]["player_1_ai"]),
+                (self.player_2_ai_type_var.get(), LANGUAGES[self.settings.language]["player_2_ai"])
+            ]:
                 if ai_type != "none" and ai_type not in ai_config["ai_types"]:
-                    print(f"Error: AI type '{ai_type}' not found in ai_config['ai_types']")
                     messagebox.showerror(
                         LANGUAGES[self.settings.language]["error"],
-                        f"ماژول {var} با نوع '{ai_type}' پیدا نشد"
+                        f"{var}: نوع '{ai_type}' پیدا نشد",
+                        parent=self.window
                     )
                     return
 
@@ -1210,74 +904,62 @@ class SettingsWindow(BaseWindow):
                 "language": self.temp_settings.language,
                 "game_mode": self.temp_settings.game_mode,
                 "ai_vs_ai_mode": self.temp_settings.ai_vs_ai_mode,
-                "repeat_hands": self.temp_settings.repeat_hands,
+                "repeat_hands": repeat_hands,
                 "player_starts": self.temp_settings.player_starts,
                 "use_timer": self.temp_settings.use_timer,
                 "game_time": self.temp_settings.game_time,
-                "piece_style": self.temp_settings.piece_style,
-                "sound_enabled": self.temp_settings.sound_enabled,
-                "ai_pause_time": self.temp_settings.ai_pause_time,
+                "piece_style": self.piece_style_var.get(),
+                "sound_enabled": self.sound_var.get(),
+                "ai_pause_time": pause_time,
                 "player_1_name": self.player_1_name_var.get(),
                 "player_2_name": self.player_2_name_var.get(),
                 "al1_name": self.al1_name_var.get(),
                 "al2_name": self.al2_name_var.get(),
                 "player_1_color": self.player_1_color_var.get(),
                 "player_2_color": self.player_2_color_var.get(),
-                "board_color_1": self.board_color_1_var.get(),
-                "board_color_2": self.board_color_2_var.get(),
-                "player_1_image": self.temp_settings.player_1_image,
-                "player_2_image": self.temp_settings.player_2_image,
-                "al1_image": self.temp_settings.al1_image,
-                "al2_image": self.temp_settings.al2_image,
-                "player_1_piece_image": self.temp_settings.player_1_piece_image,
-                "player_1_king_image": self.temp_settings.player_1_king_image,
-                "player_2_piece_image": self.temp_settings.player_2_piece_image,
-                "player_2_king_image": self.temp_settings.player_2_king_image,
+                "board_color_1": self.board_color_1_var.get(),  # اصلاح
+                "board_color_2": self.board_color_2_var.get(),  # اصلاح
+                "player_1_image": self.entries.get("player_1_image",
+                                                   tk.StringVar(value=self.temp_settings.player_1_image)).get(),
+                "player_2_image": self.entries.get("player_2_image",
+                                                   tk.StringVar(value=self.temp_settings.player_2_image)).get(),
+                "al1_image": self.entries.get("al1_image", tk.StringVar(value=self.temp_settings.al1_image)).get(),
+                "al2_image": self.entries.get("al2_image", tk.StringVar(value=self.temp_settings.al2_image)).get(),
+                "player_1_piece_image": self.entries.get("player_1_piece", tk.StringVar(
+                    value=self.temp_settings.player_1_piece_image)).get(),
+                "player_1_king_image": self.entries.get("player_1_king", tk.StringVar(
+                    value=self.temp_settings.player_1_king_image)).get(),
+                "player_2_piece_image": self.entries.get("player_2_piece", tk.StringVar(
+                    value=self.temp_settings.player_2_piece_image)).get(),
+                "player_2_king_image": self.entries.get("player_2_king", tk.StringVar(
+                    value=self.temp_settings.player_2_king_image)).get(),
                 "player_1_ai_type": self.player_1_ai_type_var.get(),
                 "player_2_ai_type": self.player_2_ai_type_var.get()
             })
             save_config(config)
 
-            # به‌روزرسانی ai_config با تنظیمات پیش‌فرض
-            ai_config["ai_configs"] = self.temp_settings.ai_configs.copy()
-            default_params = {
-                "ability_level": 5,
-                "training_params": {
-                    "memory_size": 10000,
-                    "batch_size": 128,
-                    "learning_rate": 0.001,
-                    "gamma": 0.99,
-                    "epsilon_start": 1.0,
-                    "epsilon_end": 0.01,
-                    "epsilon_decay": 0.999
-                },
-                "reward_weights": {
-                    "piece_difference": 1.0,
-                    "king_bonus": 2.0,
-                    "position_bonus": 0.1,
-                    "capture_bonus": 1.0,
-                    "multi_jump_bonus": 2.0,
-                    "king_capture_bonus": 3.0,
-                    "mobility_bonus": 0.1,
-                    "safety_penalty": -0.5
-                }
-            }
+            # به‌روزرسانی ai_config و فایل‌های کانفیگ مجزا
             for player in ["player_1", "player_2"]:
-                ai_type = ai_config["ai_configs"][player]["ai_type"]
+                ai_type = self.temp_settings.ai_configs[player]["ai_type"]
+                ai_config["ai_configs"][player] = {
+                    "ai_type": ai_type,
+                    "ai_code": self.temp_settings.ai_configs[player]["ai_code"],
+                    "ability_level": self.temp_settings.ai_configs[player]["ability_level"],
+                    "params": self.temp_settings.ai_configs[player]["params"]
+                }
                 if ai_type != "none":
-                    ai_config["ai_configs"][player]["ability_level"] = default_params["ability_level"]
-                    ai_config["ai_configs"][player]["training_params"] = default_params["training_params"].copy()
-                    ai_config["ai_configs"][player]["reward_weights"] = default_params["reward_weights"].copy()
-                else:
-                    ai_config["ai_configs"][player]["ability_level"] = default_params["ability_level"]
-                    ai_config["ai_configs"][player]["training_params"] = {}
-                    ai_config["ai_configs"][player]["reward_weights"] = {}
+                    code = ai_config["ai_types"][ai_type]["code"]
+                    ai_specific_config = load_ai_specific_config(code)
+                    ai_specific_config[player] = self.temp_settings.ai_configs[player]["params"]
+                    save_ai_specific_config(code, ai_specific_config)
+
             save_ai_config(ai_config)
 
             if config.get("language") != self.interface.settings.language:
                 messagebox.showinfo(
                     LANGUAGES[self.settings.language]["warning"],
-                    LANGUAGES[self.settings.language]["restart_required"]
+                    LANGUAGES[self.settings.language]["restart_required"],
+                    parent=self.window
                 )
 
             self.interface.pending_settings = config
@@ -1286,83 +968,146 @@ class SettingsWindow(BaseWindow):
             else:
                 messagebox.showinfo(
                     LANGUAGES[self.settings.language]["warning"],
-                    LANGUAGES[self.settings.language]["apply_after_game"]
+                    LANGUAGES[self.settings.language]["apply_after_game"],
+                    parent=self.window
                 )
 
+            messagebox.showinfo(
+                LANGUAGES[self.settings.language]["info"],
+                LANGUAGES[self.settings.language]["settings_saved"],
+                parent=self.window
+            )
             self.close()
 
-        except tk.TclError:
-            self.close()
-        except json.JSONDecodeError as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"فرمت JSON نامعتبر: {str(e)}"
-            )
         except Exception as e:
             messagebox.showerror(
                 LANGUAGES[self.settings.language]["error"],
-                f"خطا در ذخیره تنظیمات: {str(e)}"
+                f"خطا در ذخیره تنظیمات: {str(e)}",
+                parent=self.window
             )
 
     def reset(self):
-        """بازنشانی تنظیمات به مقادیر پیش‌فرض و ذخیره در فایل‌های JSON."""
-        print("Reset called")  # لاگ دیباگ
+        """بازنشانی تنظیمات به مقادیر پیش‌فرض و ذخیره در فایل‌های JSON"""
+        print("Reset called")
+        # نمایش پاپ‌آپ تأیید
+        if not messagebox.askyesno(
+                LANGUAGES[self.settings.language]["warning"],
+                LANGUAGES[self.settings.language]["confirm_reset_all"],
+                parent=self.window
+        ):
+            print("Reset cancelled by user")
+            return
+
         try:
-            config = load_config()
-            print("Config loaded:", config)  # لاگ دیباگ
-            # ایجاد نمونه جدید از temp_settings
+            # حفظ نوع AI فعلی یا انتخاب اولین AI موجود
+            ai_config = load_ai_config()
+            ai_types = list(ai_config["ai_types"].keys())
+            default_ai_type = ai_types[0] if ai_types else "none"
+            current_player_1_ai_type = self.temp_settings.player_1_ai_type if self.temp_settings.player_1_ai_type in ai_types else "none"
+            current_player_2_ai_type = self.temp_settings.player_2_ai_type if self.temp_settings.player_2_ai_type in ai_types else default_ai_type
+
+            # بازنشانی temp_settings به مقادیر پیش‌فرض
             self.temp_settings = type(self.temp_settings)()
-            # تنظیمات عمومی
-            self.temp_settings.language = config.get("language", "en")
-            self.temp_settings.game_mode = config.get("game_mode", "human_vs_human")
-            self.temp_settings.ai_vs_ai_mode = config.get("ai_vs_ai_mode", "only_once")
-            self.temp_settings.repeat_hands = config.get("repeat_hands", 1)
-            self.temp_settings.player_starts = config.get("player_starts", True)
-            self.temp_settings.use_timer = config.get("use_timer", False)
-            self.temp_settings.game_time = config.get("game_time", 5)
-            self.temp_settings.piece_style = config.get("piece_style", "classic")
-            self.temp_settings.sound_enabled = config.get("sound_enabled", True)
-            self.temp_settings.ai_pause_time = config.get("ai_pause_time", 100)
-            self.temp_settings.player_1_name = config.get("player_1_name", "Player 1")
-            self.temp_settings.player_2_name = config.get("player_2_name", "Player 2")
-            self.temp_settings.al1_name = config.get("al1_name", "AI 1")
-            self.temp_settings.al2_name = config.get("al2_name", "AI 2")
-            # تنظیم رنگ‌ها
-            self.temp_settings.player_1_color = hex_to_rgb(config.get("player_1_color", "#ff0000"))
-            self.temp_settings.player_2_color = hex_to_rgb(config.get("player_2_color", "#0000ff"))
-            self.temp_settings.board_color_1 = hex_to_rgb(config.get("board_color_1", "#ffffff"))
-            self.temp_settings.board_color_2 = hex_to_rgb(config.get("board_color_2", "#8b4513"))
-            # تنظیمات AI
+            self.temp_settings.language = "en"
+            self.temp_settings.game_mode = "human_vs_ai"  # برای فعال کردن AI
+            self.temp_settings.ai_vs_ai_mode = "only_once"
+            self.temp_settings.repeat_hands = 10
+            self.temp_settings.player_starts = True
+            self.temp_settings.use_timer = True
+            self.temp_settings.game_time = 5
+            self.temp_settings.piece_style = "circle"
+            self.temp_settings.sound_enabled = False
+            self.temp_settings.ai_pause_time = 20
+            self.temp_settings.player_1_name = "Player 1"
+            self.temp_settings.player_2_name = "AI Player"
+            self.temp_settings.al1_name = "AI 1"
+            self.temp_settings.al2_name = "AI 2"
+            self.temp_settings.player_1_color = (255, 0, 0)  # قرمز
+            self.temp_settings.player_2_color = (0, 0, 255)  # آبی
+            self.temp_settings.board_color_1 = (255, 255, 255)  # سفید
+            self.temp_settings.board_color_2 = (139, 69, 19)  # قهوه‌ای
+            self.temp_settings.player_1_ai_type = current_player_1_ai_type
+            self.temp_settings.player_2_ai_type = current_player_2_ai_type
+            self.temp_settings.player_1_image = ""
+            self.temp_settings.player_2_image = ""
+            self.temp_settings.al1_image = ""
+            self.temp_settings.al2_image = ""
+            self.temp_settings.player_1_piece_image = "assets/pieces/red_piece.png"
+            self.temp_settings.player_1_king_image = "assets/pieces/red_king.png"
+            self.temp_settings.player_2_piece_image = "assets/pieces/blue_piece.png"
+            self.temp_settings.player_2_king_image = "assets/pieces/blue_king.png"
             self.temp_settings.ai_configs = {
                 "player_1": {
-                    "ai_type": "none",
+                    "ai_type": current_player_1_ai_type,
+                    "ai_code": ai_config["ai_types"].get(current_player_1_ai_type, {}).get("code", None),
                     "ability_level": 5,
-                    "training_params": config.get("default_ai_params", {}).get("training_params", {}),
-                    "reward_weights": config.get("default_ai_params", {}).get("reward_weights", {})
+                    "params": DEFAULT_AI_PARAMS.copy() if current_player_1_ai_type != "none" else {}
                 },
                 "player_2": {
-                    "ai_type": "none",
+                    "ai_type": current_player_2_ai_type,
+                    "ai_code": ai_config["ai_types"].get(current_player_2_ai_type, {}).get("code", None),
                     "ability_level": 5,
-                    "training_params": config.get("default_ai_params", {}).get("training_params", {}),
-                    "reward_weights": config.get("default_ai_params", {}).get("reward_weights", {})
+                    "params": DEFAULT_AI_PARAMS.copy() if current_player_2_ai_type != "none" else {}
                 }
             }
-            print("Temp settings after reset:", vars(self.temp_settings))  # لاگ دیباگ
+
+            # به‌روزرسانی ویجت‌های UI (با چک وجود متغیرها)
+            ui_vars = {
+                "language_var": self.temp_settings.language,
+                "game_mode_var": self.temp_settings.game_mode,
+                "ai_vs_ai_var": self.temp_settings.ai_vs_ai_mode,
+                "hmh_var": self.temp_settings.repeat_hands,
+                "player_starts_var": self.temp_settings.player_starts,
+                "use_timer_var": self.temp_settings.use_timer,
+                "game_time_var": self.temp_settings.game_time,
+                "piece_style_var": self.temp_settings.piece_style,
+                "sound_var": self.temp_settings.sound_enabled,
+                "ai_pause_var": self.temp_settings.ai_pause_time,
+                "player_1_name_var": self.temp_settings.player_1_name,
+                "player_2_name_var": self.temp_settings.player_2_name,
+                "al1_name_var": self.temp_settings.al1_name,
+                "al2_name_var": self.temp_settings.al2_name,
+                "player_1_color_var": self.temp_settings.player_1_color,
+                "player_2_color_var": self.temp_settings.player_2_color,
+                "board_color_1_var": self.temp_settings.board_color_1,
+                "board_color_2_var": self.temp_settings.board_color_2,
+                "player_1_ai_type_var": self.temp_settings.player_1_ai_type,
+                "player_2_ai_type_var": self.temp_settings.player_2_ai_type
+            }
+            for var_name, value in ui_vars.items():
+                if hasattr(self, var_name):
+                    getattr(self, var_name).set(value)
+                else:
+                    print(f"Warning: {var_name} not found in SettingsWindow")
+
+            # به‌روزرسانی entries
+            for key in ["player_1_image", "player_2_image", "al1_image", "al2_image",
+                        "player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
+                if key in self.entries:
+                    self.entries[key].set(self.temp_settings.__dict__.get(key, ""))
+                else:
+                    print(f"Warning: Entry {key} not found in self.entries")
+
+            # به‌روزرسانی UI (مثل فعال/غیرفعال کردن گزینه‌ها)
             self.update_ui()
-            self.save()  # ذخیره تنظیمات پیش‌فرض در فایل‌های JSON
-            print("Reset completed, settings saved")  # لاگ دیباگ
+            print("Temp settings after reset:", vars(self.temp_settings))
+
+            # ذخیره تنظیمات بازنشانی‌شده
+            self.save()
+            print("Reset completed, settings saved")
             messagebox.showinfo(
                 LANGUAGES[self.settings.language]["info"],
                 LANGUAGES[self.settings.language]["settings_reset"]
             )
         except Exception as e:
-            print(f"Error in reset: {str(e)}")  # لاگ دیباگ
+            print(f"Error in reset: {str(e)}")
             messagebox.showerror(
                 LANGUAGES[self.settings.language]["error"],
                 f"خطا در بازنشانی تنظیمات: {str(e)}"
             )
 
     def update_ui(self):
+        """به‌روزرسانی رابط کاربری با تنظیمات موقت"""
         if not self.window or not self.is_open:
             return
         self.lang_var.set(self.temp_settings.language)
@@ -1381,7 +1126,6 @@ class SettingsWindow(BaseWindow):
         self.player_2_name_var.set(self.temp_settings.player_2_name)
         self.al1_name_var.set(self.temp_settings.al1_name)
         self.al2_name_var.set(self.temp_settings.al2_name)
-        # تنظیم رنگ‌ها با فرمت هگز
         self.player_1_color_var.set(rgb_to_hex(self.temp_settings.player_1_color))
         self.player_2_color_var.set(rgb_to_hex(self.temp_settings.player_2_color))
         self.board_color_1_var.set(rgb_to_hex(self.temp_settings.board_color_1))
@@ -1415,6 +1159,8 @@ class SettingsWindow(BaseWindow):
         self.toggle_repeat_options()
         self.toggle_timer()
         self.update_ai_dropdowns()
+
+
 
 class ALProgressWindow(BaseWindow):
     def create_widgets(self):
@@ -1461,6 +1207,7 @@ class ALProgressWindow(BaseWindow):
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
+
 class AZProgressWindow(BaseWindow):
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["az_progress"],
@@ -1506,7 +1253,9 @@ class AZProgressWindow(BaseWindow):
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
+
 class HelpWindow(BaseWindow):
+
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["help"],
                          self.config.get("help_window_width", 300),
@@ -1515,7 +1264,9 @@ class HelpWindow(BaseWindow):
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
+
 class AboutWindow(BaseWindow):
+
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["about_me"],
                          self.config.get("about_window_width", 300),
@@ -1524,167 +1275,294 @@ class AboutWindow(BaseWindow):
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
+
 class AdvancedConfigWindow(tk.Toplevel):
+
     def __init__(self, parent, settings, temp_settings, language):
         super().__init__(parent)
         self.parent = parent
         self.settings = settings
         self.temp_settings = temp_settings
+        self.language = language
         self.title(LANGUAGES[language]["advanced_settings_title"])
-        self.geometry("600x500")
-        self.resizable(False, False)
 
-        notebook = ttk.Notebook(self)
+        # تنظیم اندازه و موقعیت پنجره مشابه SettingsWindow
+        config = load_config()
+        width = config.get("settings_window_width", 500)
+        height = config.get("settings_window_height", 750)
+        x = (config.get("window_width", 800) - width) // 2
+        y = (config.get("window_height", 600) - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.resizable(True, True)
+        self.minsize(config.get("min_window_width", 300), config.get("min_window_height", 200))
+
+        self.ai_config = load_ai_config()
+        self.ai_types = list(self.ai_config["ai_types"].keys())
+        self.param_vars = {}
+        self.current_ai_type = self.ai_types[0] if self.ai_types else None
+
+        # فریم اصلی برای محتوا
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill="both", expand=True)
+
+        # کانتینر اسکرول‌پذیر
+        self.canvas = tk.Canvas(main_frame)
+        self.scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+        # نوت‌بوک برای تب‌های AI
+        notebook = ttk.Notebook(self.scrollable_frame)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.setup_player_tab(notebook, "player_1", LANGUAGES[language]["player_1"])
-        self.setup_player_tab(notebook, "player_2", LANGUAGES[language]["player_2"])
+        for ai_type in self.ai_types:
+            self.setup_ai_tab(notebook, ai_type)
 
-        ttk.Button(self, text=LANGUAGES[language]["save_all"],
+        notebook.bind("<<NotebookTabChanged>>", self.update_current_ai)
+
+        # فریم ثابت برای دکمه‌های ذخیره و ریست
+        button_frame = ttk.Frame(self)
+        button_frame.pack(side="bottom", fill="x", pady=10)
+
+        ttk.Button(button_frame, text=LANGUAGES[language]["save_all"],
                    command=self.save_advanced_settings,
-                   style="Custom.TButton").pack(pady=10)
+                   style="Custom.TButton").pack(side="right", padx=5)
+        self.reset_buttons = {}
+        for player in ["player_1", "player_2"]:
+            self.reset_buttons[player] = ttk.Button(
+                button_frame,
+                text=f"{LANGUAGES[language]['reset']} {LANGUAGES[language][player]}",
+                command=lambda p=player: self.reset_player_tab(self.current_ai_type, p),
+                style="Custom.TButton"
+            )
+            self.reset_buttons[player].pack(side="right", padx=5)
 
-    def setup_player_tab(self, notebook, player_key, player_name):
-        frame = ttk.Frame(notebook, padding="10")
-        notebook.add(frame, text=player_name)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        training_frame = ttk.LabelFrame(frame, text=LANGUAGES[self.settings.language]["training_params"], padding=10)
-        training_frame.pack(fill="x", pady=5)
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-        training_params = self.temp_settings.ai_configs.get(player_key, {}).get("training_params", {})
+    def update_current_ai(self, event):
+        notebook = event.widget
+        current_tab = notebook.select()
+        tab_index = notebook.index(current_tab)
+        self.current_ai_type = self.ai_types[tab_index]
+        print(f"Current AI type updated to: {self.current_ai_type}")
 
-        learning_rate_var = tk.DoubleVar(value=training_params.get("learning_rate", 0.001))
-        ttk.Label(training_frame, text="Learning Rate:").grid(row=0, column=0, padx=5, sticky="e")
-        ttk.Entry(training_frame, textvariable=learning_rate_var).grid(row=0, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_learning_rate_var", learning_rate_var)
+    def setup_ai_tab(self, notebook, ai_type):
+        ai_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(ai_frame, text=ai_type)
 
-        gamma_var = tk.DoubleVar(value=training_params.get("gamma", 0.99))
-        ttk.Label(training_frame, text="Gamma:").grid(row=1, column=0, padx=5, sticky="e")
-        ttk.Entry(training_frame, textvariable=gamma_var).grid(row=1, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_gamma_var", gamma_var)
+        sub_notebook = ttk.Notebook(ai_frame)
+        sub_notebook.pack(fill="both", expand=True)
 
-        batch_size_var = tk.IntVar(value=training_params.get("batch_size", 128))
-        ttk.Label(training_frame, text="Batch Size:").grid(row=2, column=0, padx=5, sticky="e")
-        ttk.Entry(training_frame, textvariable=batch_size_var).grid(row=2, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_batch_size_var", batch_size_var)
+        for player in ["player_1", "player_2"]:
+            self.setup_player_subtab(sub_notebook, ai_type, player)
 
-        memory_size_var = tk.IntVar(value=training_params.get("memory_size", 10000))
-        ttk.Label(training_frame, text="Memory Size:").grid(row=3, column=0, padx=5, sticky="e")
-        ttk.Entry(training_frame, textvariable=memory_size_var).grid(row=3, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_memory_size_var", memory_size_var)
+    def setup_player_subtab(self, sub_notebook, ai_type, player):
+        frame = ttk.Frame(sub_notebook, padding="10")
+        sub_notebook.add(frame, text=LANGUAGES[self.language][player])
 
-        reward_frame = ttk.LabelFrame(frame, text=LANGUAGES[self.settings.language]["reward_weights"], padding=10)
-        reward_frame.pack(fill="x", pady=5)
+        ai_code = self.ai_config["ai_types"][ai_type]["code"]
+        ai_specific_config = load_ai_specific_config(ai_code)
+        player_params = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
 
-        reward_weights = self.temp_settings.ai_configs.get(player_key, {}).get("reward_weights", {})
+        if ai_type not in self.param_vars:
+            self.param_vars[ai_type] = {}
+        self.param_vars[ai_type][player] = {}
 
-        piece_difference_var = tk.DoubleVar(value=reward_weights.get("piece_difference", 1.0))
-        ttk.Label(reward_frame, text="Piece Difference:").grid(row=0, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=piece_difference_var).grid(row=0, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_piece_difference_var", piece_difference_var)
+        for param_category, params in DEFAULT_AI_PARAMS.items():
+            category_frame = ttk.LabelFrame(frame, text=LANGUAGES[self.language].get(param_category, param_category),
+                                            padding=10)
+            category_frame.pack(fill="x", pady=5)
 
-        king_bonus_var = tk.DoubleVar(value=reward_weights.get("king_bonus", 2.0))
-        ttk.Label(reward_frame, text="King Bonus:").grid(row=1, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=king_bonus_var).grid(row=1, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_king_bonus_var", king_bonus_var)
+            row = 0
+            for param_name, default_value in params.items():
+                if param_name == "fc_layer_sizes":  # فعلاً نادیده گرفته می‌شود
+                    continue
+                var_type = tk.StringVar if param_name == "cache_file" else tk.DoubleVar if isinstance(default_value,
+                                                                                                      float) else tk.IntVar
+                value = player_params.get(param_category, {}).get(param_name, default_value)
+                try:
+                    if var_type == tk.StringVar:
+                        value = str(value)
+                    elif var_type == tk.DoubleVar:
+                        value = float(value)
+                    elif var_type == tk.IntVar:
+                        value = int(value)
+                except (ValueError, TypeError):
+                    value = default_value
+                param_var = var_type(value=value)
 
-        position_bonus_var = tk.DoubleVar(value=reward_weights.get("position_bonus", 0.1))
-        ttk.Label(reward_frame, text="Position Bonus:").grid(row=2, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=position_bonus_var).grid(row=2, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_position_bonus_var", position_bonus_var)
+                ttk.Label(category_frame, text=f"{param_name.replace('_', ' ').title()}:", anchor="w").grid(row=row,
+                                                                                                            column=0,
+                                                                                                            padx=5,
+                                                                                                            sticky="w")
+                entry = ttk.Entry(category_frame, textvariable=param_var, justify="right", width=15)
+                entry.grid(row=row, column=1, padx=5, sticky="e")
+                category_frame.grid_columnconfigure(1, weight=1)
 
-        capture_bonus_var = tk.DoubleVar(value=reward_weights.get("capture_bonus", 1.0))
-        ttk.Label(reward_frame, text="Capture Bonus:").grid(row=3, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=capture_bonus_var).grid(row=3, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_capture_bonus_var", capture_bonus_var)
+                self.param_vars[ai_type][player][(param_category, param_name)] = param_var
+                row += 1
 
-        multi_jump_bonus_var = tk.DoubleVar(value=reward_weights.get("multi_jump_bonus", 2.0))
-        ttk.Label(reward_frame, text="Multi-Jump Bonus:").grid(row=4, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=multi_jump_bonus_var).grid(row=4, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_multi_jump_bonus_var", multi_jump_bonus_var)
+    def reset_player_tab(self, ai_type, player):
+        print(f"Resetting tab for AI: {ai_type}, Player: {player}")
+        if not ai_type:
+            print("No AI type selected, aborting reset")
+            messagebox.showerror(
+                LANGUAGES[self.language]["error"],
+                LANGUAGES[self.language]["no_ai_selected"]
+            )
+            return
 
-        king_capture_bonus_var = tk.DoubleVar(value=reward_weights.get("king_capture_bonus", 3.0))
-        ttk.Label(reward_frame, text="King Capture Bonus:").grid(row=5, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=king_capture_bonus_var).grid(row=5, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_king_capture_bonus_var", king_capture_bonus_var)
+        # نمایش پاپ‌آپ تأیید
+        if not messagebox.askyesno(
+                LANGUAGES[self.language]["warning"],
+                f"{LANGUAGES[self.language]['confirm_reset']} {LANGUAGES[self.language][player]}",
+                parent=self
+        ):
+            print(f"Reset for {player} cancelled by user")
+            return
 
-        mobility_bonus_var = tk.DoubleVar(value=reward_weights.get("mobility_bonus", 0.1))
-        ttk.Label(reward_frame, text="Mobility Bonus:").grid(row=6, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=mobility_bonus_var).grid(row=6, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_mobility_bonus_var", mobility_bonus_var)
+        # استفاده مستقیم از DEFAULT_AI_PARAMS برای بازنشانی
+        player_params = DEFAULT_AI_PARAMS.copy()
+        ai_code = self.ai_config["ai_types"][ai_type]["code"]
+        ai_specific_config = load_ai_specific_config(ai_code)
 
-        safety_penalty_var = tk.DoubleVar(value=reward_weights.get("safety_penalty", -0.5))
-        ttk.Label(reward_frame, text="Safety Penalty:").grid(row=7, column=0, padx=5, sticky="e")
-        ttk.Entry(reward_frame, textvariable=safety_penalty_var).grid(row=7, column=1, padx=5, sticky="ew")
-        setattr(self, f"{player_key}_safety_penalty_var", safety_penalty_var)
+        for param_category, params in DEFAULT_AI_PARAMS.items():
+            for param_name, default_value in params.items():
+                if param_name == "fc_layer_sizes":
+                    player_params[param_category][param_name] = default_value
+                    continue
+                param_var = self.param_vars[ai_type][player].get((param_category, param_name))
+                if param_var:
+                    try:
+                        if param_name == "cache_file":
+                            value = str(default_value)
+                        elif param_name == "cache_save_interval":
+                            value = int(default_value)
+                        elif isinstance(default_value, float):
+                            value = float(default_value)
+                        else:
+                            value = int(default_value)
+                        param_var.set(value)
+                        player_params[param_category][param_name] = value
+                    except Exception as e:
+                        print(f"Error setting {param_category}.{param_name}: {e}")
+                        param_var.set(default_value)
+                        player_params[param_category][param_name] = default_value
+                    print(f"Set {param_category}.{param_name} to {param_var.get()}")
+
+        # به‌روزرسانی temp_settings و ذخیره در فایل کانفیگ
+        self.temp_settings.ai_configs[player]["params"] = player_params
+        ai_specific_config[player] = player_params
+        save_ai_specific_config(ai_code, ai_specific_config)
+        print(f"Saved reset params for {player} to {ai_code}_config.json")
+        print(f"Updated temp_settings.ai_configs[{player}] with default params")
+
+        messagebox.showinfo(
+            LANGUAGES[self.language]["info"],
+            f"{LANGUAGES[self.language]['settings_reset']} {LANGUAGES[self.language][player]}"
+        )
 
     def save_advanced_settings(self):
         try:
-            for player in ["player_1", "player_2"]:
-                learning_rate = getattr(self, f"{player}_learning_rate_var").get()
-                gamma = getattr(self, f"{player}_gamma_var").get()
-                batch_size = getattr(self, f"{player}_batch_size_var").get()
-                memory_size = getattr(self, f"{player}_memory_size_var").get()
+            for ai_type in self.ai_types:
+                ai_code = self.ai_config["ai_types"][ai_type]["code"]
+                ai_specific_config = load_ai_specific_config(ai_code)
 
-                if not (0 < learning_rate <= 1.0):
-                    raise ValueError("Learning Rate باید بین 0 و 1 باشد")
-                if not (0 <= gamma <= 1.0):
-                    raise ValueError("Gamma باید بین 0 و 1 باشد")
-                if batch_size <= 0:
-                    raise ValueError("Batch Size باید مثبت باشد")
-                if memory_size <= 0:
-                    raise ValueError("Memory Size باید مثبت باشد")
-
-            player1_training_params = {
-                "learning_rate": self.player_1_learning_rate_var.get(),
-                "gamma": self.player_1_gamma_var.get(),
-                "batch_size": self.player_1_batch_size_var.get(),
-                "memory_size": self.player_1_memory_size_var.get()
-            }
-            player1_reward_weights = {
-                "piece_difference": self.player_1_piece_difference_var.get(),
-                "king_bonus": self.player_1_king_bonus_var.get(),
-                "position_bonus": self.player_1_position_bonus_var.get(),
-                "capture_bonus": self.player_1_capture_bonus_var.get(),
-                "multi_jump_bonus": self.player_1_multi_jump_bonus_var.get(),
-                "king_capture_bonus": self.player_1_king_capture_bonus_var.get(),
-                "mobility_bonus": self.player_1_mobility_bonus_var.get(),
-                "safety_penalty": self.player_1_safety_penalty_var.get()
-            }
-            self.temp_settings.ai_configs["player_1"]["training_params"] = player1_training_params
-            self.temp_settings.ai_configs["player_1"]["reward_weights"] = player1_reward_weights
-
-            player2_training_params = {
-                "learning_rate": self.player_2_learning_rate_var.get(),
-                "gamma": self.player_2_gamma_var.get(),
-                "batch_size": self.player_2_batch_size_var.get(),
-                "memory_size": self.player_2_memory_size_var.get()
-            }
-            player2_reward_weights = {
-                "piece_difference": self.player_2_piece_difference_var.get(),
-                "king_bonus": self.player_2_king_bonus_var.get(),
-                "position_bonus": self.player_2_position_bonus_var.get(),
-                "capture_bonus": self.player_2_capture_bonus_var.get(),
-                "multi_jump_bonus": self.player_2_multi_jump_bonus_var.get(),
-                "king_capture_bonus": self.player_2_king_capture_bonus_var.get(),
-                "mobility_bonus": self.player_2_mobility_bonus_var.get(),
-                "safety_penalty": self.player_2_safety_penalty_var.get()
-            }
-            self.temp_settings.ai_configs["player_2"]["training_params"] = player2_training_params
-            self.temp_settings.ai_configs["player_2"]["reward_weights"] = player2_reward_weights
-
-            ai_config = load_ai_config()
-            ai_config["ai_configs"]["player_1"].update(self.temp_settings.ai_configs["player_1"])
-            ai_config["ai_configs"]["player_2"].update(self.temp_settings.ai_configs["player_2"])
-            save_ai_config(ai_config)
+                for player in ["player_1", "player_2"]:
+                    player_params = {}
+                    for param_category, params in DEFAULT_AI_PARAMS.items():
+                        player_params[param_category] = {}
+                        for param_name, default_value in params.items():
+                            if param_name == "fc_layer_sizes":
+                                player_params[param_category][param_name] = default_value
+                                continue
+                            param_var = self.param_vars[ai_type][player].get((param_category, param_name))
+                            if param_var:
+                                value = param_var.get()
+                                if param_name == "cache_file":
+                                    value = str(value)
+                                elif param_name == "cache_save_interval":
+                                    value = int(value)
+                                    if value <= 0:
+                                        raise ValueError(f"{param_name} باید مثبت باشد")
+                                elif param_category == "training_params":
+                                    if param_name in ["learning_rate", "gamma", "epsilon_start", "epsilon_end",
+                                                      "epsilon_decay"]:
+                                        if not 0 <= value <= 1:
+                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
+                                    elif param_name in ["memory_size", "batch_size", "update_target_every"]:
+                                        if value <= 0:
+                                            raise ValueError(f"{param_name} باید مثبت باشد")
+                                    elif param_name == "reward_threshold":
+                                        if not -1 <= value <= 1:
+                                            raise ValueError(f"{param_name} باید بین -1 و 1 باشد")
+                                elif param_category == "reward_weights":
+                                    if param_name in ["piece_difference", "king_bonus", "capture_bonus",
+                                                      "multi_jump_bonus", "king_capture_bonus", "mobility_bonus"]:
+                                        if value < 0:
+                                            raise ValueError(f"{param_name} باید غیرمنفی باشد")
+                                    elif param_name == "position_bonus":
+                                        if not 0 <= value <= 1:
+                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
+                                    elif param_name == "safety_penalty":
+                                        if not -1 <= value <= 0:
+                                            raise ValueError(f"{param_name} باید بین -1 و 0 باشد")
+                                elif param_category == "mcts_params":
+                                    if param_name in ["c_puct", "num_simulations", "max_cache_size", "num_processes"]:
+                                        if value <= 0:
+                                            raise ValueError(f"{param_name} باید مثبت باشد")
+                                elif param_category == "network_params":
+                                    if param_name in ["input_channels", "num_filters", "num_blocks", "board_size",
+                                                      "num_actions"]:
+                                        if value <= 0:
+                                            raise ValueError(f"{param_name} باید مثبت باشد")
+                                    elif param_name == "dropout_rate":
+                                        if not 0 <= value <= 1:
+                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
+                                elif param_category == "advanced_nn_params":
+                                    if param_name in ["input_channels", "conv1_filters", "conv1_kernel_size",
+                                                      "conv1_padding",
+                                                      "residual_block1_filters", "residual_block2_filters",
+                                                      "conv2_filters",
+                                                      "attention_embed_dim", "attention_num_heads"]:
+                                        if value <= 0:
+                                            raise ValueError(f"{param_name} باید مثبت باشد")
+                                    elif param_name == "dropout_rate":
+                                        if not 0 <= value <= 1:
+                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
+                                elif param_category == "end_game_rewards":
+                                    if param_name in ["win_no_timeout", "win_timeout", "draw", "loss"]:
+                                        if not -1000 <= value <= 1000:
+                                            raise ValueError(f"{param_name} باید بین -1000 و 1000 باشد")
+                                player_params[param_category][param_name] = value
+                    ai_specific_config[player] = player_params
+                    # به‌روزرسانی temp_settings
+                    self.temp_settings.ai_configs[player]["params"] = player_params
+                    print(f"Saved params for {player} in temp_settings.ai_configs")
+                save_ai_specific_config(ai_code, ai_specific_config)
 
             messagebox.showinfo(
-                LANGUAGES[self.settings.language]["info"],
-                LANGUAGES[self.settings.language]["settings_saved"]
+                LANGUAGES[self.language]["info"],
+                LANGUAGES[self.language]["settings_saved"]
             )
-            self.destroy()  # بستن پنجره تنظیمات پیشرفته پس از ذخیره
+            self.destroy()
         except Exception as e:
             messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
+                LANGUAGES[self.language]["error"],
                 f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}"
             )
+
+

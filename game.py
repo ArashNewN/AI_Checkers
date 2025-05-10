@@ -1,14 +1,12 @@
 import pygame
-import os
-import random
 import numpy as np
 from .board import Board
 import importlib
 from .timer import TimerManager
 from .rewards import RewardCalculator
 from .config import load_config, load_stats, save_stats, load_ai_config
-from .constants import WINDOW_WIDTH, WINDOW_HEIGHT, BOARD_WIDTH, MENU_HEIGHT, BORDER_THICKNESS, SQUARE_SIZE, RED
-from .base_ai import BaseAI
+from .constants import BOARD_WIDTH, MENU_HEIGHT, BORDER_THICKNESS, SQUARE_SIZE, RED
+
 
 class Game:
     def __init__(self, settings, interface=None):
@@ -56,35 +54,64 @@ class Game:
         self.init_game()
 
     def update_ai_players(self):
+        print(f"Updating AI players. Current ai_players: {self.ai_players}")
+        config_dict = load_ai_config()
+        print(f"Config dict in update_ai_players: {config_dict}")
 
-        print("update_ai_players called")
-        print(f"player_1_ai_type: {self.settings.player_1_ai_type}")
-        print(f"player_2_ai_type: {self.settings.player_2_ai_type}")
-        self.ai_players.clear()
-        ai_config = load_ai_config()
-        players = [
-            ("player_1", self.settings.player_1_ai_type, "ai_1"),
-            ("player_2", self.settings.player_2_ai_type, "ai_2")
-        ]
-        for player, ai_type, ai_id in players:
-            if ai_type != "none":
+        ai_type_to_class = {}
+        for ai_info in config_dict.get("available_ais", []):
+            try:
+                module_name = ai_info["module"]
+                class_name = ai_info["class"]
+                ai_type = ai_info["type"]
+                print(f"Attempting to import {class_name} from {module_name} for type {ai_type}")
+                module = importlib.import_module(module_name)
+                ai_class = getattr(module, class_name)
+                if not isinstance(ai_class, type):
+                    print(f"Error: {class_name} is not a class, got {ai_class}")
+                    continue
+                ai_type_to_class[ai_type] = ai_class
+                print(f"Successfully mapped {ai_type} to {class_name}")
+            except Exception as e:
+                print(f"Error importing AI class {class_name} from {module_name}: {e}")
+
+        if not ai_type_to_class:
+            print("Error: No valid AI classes loaded. Check available_ais in config.")
+            return
+
+        self.ai_players = {}  # ریست کردن ai_players
+        if self.settings.game_mode == "ai_vs_ai":
+            players = ["player_1", "player_2"]
+        elif self.settings.game_mode == "human_vs_ai":
+            players = ["player_2"]  # فقط برای ai_2 در human_vs_ai
+        else:
+            print(f"Error: Invalid game_mode: {self.settings.game_mode}")
+            return
+
+        for player in players:
+            ai_id = "ai_1" if player == "player_1" else "ai_2"
+            settings = config_dict["ai_configs"].get(player, {})
+            ai_type = settings.get("ai_type")
+            model_name = settings.get("ai_code", "default")
+            print(f"Processing AI for {player} (ID: {ai_id}, type: {ai_type}, model_name: {model_name})")
+            if ai_type and ai_type != "none":
                 try:
-                    ai_info = next((ai for ai in ai_config["available_ais"] if ai["type"] == ai_type), None)
-                    if not ai_info:
-                        print(f"AI type {ai_type} not found in ai_config.json")
-                        continue
-                    print(f"Loading module: {ai_info['module']}")
-                    module = importlib.import_module(ai_info["module"])
-                    ai_class = getattr(module, ai_info["class"])
-                    color = "black" if player == "player_2" else "red"
-                    self.ai_players[ai_id] = ai_class(self, color, ai_type, ai_id, self.settings)
-                    print(f"Loaded AI: {ai_type} for {player} (ID: {ai_id}, color: {color})")
+                    ai_class = ai_type_to_class.get(ai_type)
+                    if ai_class:
+                        print(f"Attempting to load AI: {ai_type} for {player} (ID: {ai_id})")
+                        self.ai_players[ai_id] = ai_class(game=self, model_name=model_name, ai_id=ai_id,
+                                                          config=config_dict)
+                        print(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
+                        print(f"AI players after update: {self.ai_players}")
+                    else:
+                        print(f"No AI class found for type: {ai_type}")
                 except Exception as e:
                     print(f"Error loading AI {ai_type} for {player}: {e}")
+            else:
+                print(f"No AI type specified or ai_type is 'none' for {player}")
 
-    def _create_ai(self, ai_type, model_name, ai_id, color):
-        """ایجاد یک نمونه AI بر اساس نوع آن."""
-        print(f"Creating AI: ai_type={ai_type}, model_name={model_name}, ai_id={ai_id}, color={color}")
+    def _create_ai(self, ai_type, model_name, ai_id):
+        print(f"Creating AI: ai_type={ai_type}, model_name={model_name}, ai_id={ai_id}")
         if ai_type == "none":
             return None
         try:
@@ -94,7 +121,10 @@ class Game:
                 raise ValueError(f"AI type {ai_type} not found in ai_config.json")
             module = importlib.import_module(ai_info["module"])
             ai_class = getattr(module, ai_info["class"])
-            return ai_class(self, color, model_name, ai_id, self.settings)
+            config_dict = {"ai_configs": ai_config["ai_configs"]}
+            print(
+                f"Config for {ai_id}: {config_dict['ai_configs']['player_1' if ai_id == 'ai_1' else 'player_2']}")  # لاگ دیباگ
+            return ai_class(game=self, model_name=model_name, ai_id=ai_id, config=config_dict)
         except Exception as e:
             print(f"Error creating AI {ai_id}: {e}")
             return None
@@ -154,55 +184,34 @@ class Game:
         self.last_update_time = pygame.time.get_ticks()
         self.update_ai_players()
 
-    def make_ai_move(self):
-        ai = None
-        target_ai_id = "ai_2" if self.turn else "ai_1"
-        ai = self.ai_players.get(target_ai_id)
-        if not ai:
-            print(f"No AI found for {target_ai_id}")
+    def make_ai_move(self, ai_id=None):
+        print(f"[make_ai_move] Called with ai_id: {ai_id}")
+        print(f"[make_ai_move] Current ai_players: {self.ai_players}")
+
+        if ai_id is None:
+            ai_id = "ai_1" if not self.turn else "ai_2"
+            print(f"[make_ai_move] No ai_id provided, using turn: {self.turn} -> {ai_id}")
+
+        if ai_id not in ["ai_1", "ai_2"] or ai_id not in self.ai_players:
+            print(f"[make_ai_move] Invalid or missing AI for ai_id: {ai_id}")
             return
-        valid_pieces = []
-        for row in range(self.board_size):
-            for col in range(self.board_size):
-                piece = self.board.board[row, col]
-                if piece != 0 and (piece < 0) == self.turn:
-                    moves = self.get_valid_moves(row, col)
-                    if moves:
-                        valid_pieces.append(((row, col), moves))
-        print(f"Valid pieces for {target_ai_id}: {valid_pieces}")
+
         try:
-            move = ai.get_move(self.board.board)
-            print(f"AI selected move: {move}")
+            ai = self.ai_players[ai_id]
+            print(f"[make_ai_move] AI object: {ai}, game: {ai.game}")
+            print(f"[make_ai_move] Board shape: {self.board.board.shape}")
+            valid_moves = ai.get_valid_moves(self.board.board)
+            print(f"[make_ai_move] Valid moves from AI: {valid_moves}")
+            move = ai.act(valid_moves)
+            print(f"[make_ai_move] AI move returned: {move}")
             if move:
-                # پیدا کردن مهره‌ای که حرکت بهش تعلق داره
-                for (row, col), moves in valid_pieces:
-                    if move[1] in moves:
-                        self.last_state = self.board.board.copy()
-                        self.last_action = move
-                        self.selected = (row, col)
-                        self.valid_moves = moves
-                        if self._move(move[1][0], move[1][1]):
-                            self.move_log.append((row, col, move[1][0], move[1][1]))
-                            if len(self.move_log) > 30:
-                                self.move_log.pop(0)
-                            if self.reward_calculator:
-                                reward = self.reward_calculator.get_reward()
-                                ai.update(move, reward)
-                            if self.game_over:
-                                ai.save_model()
-                                if hasattr(ai, 'update_target_network'):
-                                    ai.update_target_network()
-                            if self.settings.sound_enabled and os.path.exists('move.wav'):
-                                try:
-                                    pygame.mixer.Sound('move.wav').play()
-                                except pygame.error as e:
-                                    print(f"Error playing move.wav: {e}")
-                        return  # حرکت با موفقیت انجام شد
-                print(f"Invalid move by AI: {move}")
+                (from_row, from_col), (to_row, to_col) = move
+                self.make_move(from_row, from_col, to_row, to_col)
             else:
-                print(f"Invalid move by AI: {move}")
+                print("[make_ai_move] Warning: AI returned None for move")
         except Exception as e:
-            print(f"Error in AI move (AI ID: {ai.ai_id}): {e}")
+            print(f"[make_ai_move] Error in AI move (AI ID: {ai_id}): {e}")
+            raise
 
     def _update_game(self):
         """به‌روزرسانی وضعیت بازی."""
@@ -439,11 +448,9 @@ class Game:
         """دریافت پیشنهاد حرکت از AI."""
         if self.game_over:
             return None
-        ai = None
-        for ai_id, ai_instance in self.ai_players.items():
-            if ai_instance and ai_instance.color == (self.settings.player_2_color if self.turn else self.settings.player_1_color):
-                ai = ai_instance
-                break
+        # انتخاب ai_id بر اساس نوبت
+        ai_id = "ai_1" if not self.turn else "ai_2"
+        ai = self.ai_players.get(ai_id)
         if ai:
             for row in range(self.board_size):
                 for col in range(self.board_size):
@@ -452,7 +459,8 @@ class Game:
                         moves = self.get_valid_moves(row, col)
                         if moves:
                             try:
-                                move = ai.suggest_move(self, moves) if hasattr(ai, 'suggest_move') else ai.act(self, moves)
+                                move = ai.suggest_move(self, moves) if hasattr(ai, 'suggest_move') else ai.act(self,
+                                                                                                               moves)
                                 if move:
                                     return ((row, col), move)
                             except Exception as e:
