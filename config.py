@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 import importlib
 
-# متغیر سراسری برای پارامترهای پیش‌فرض AI
+
 DEFAULT_AI_PARAMS = {
     "training_params": {
         "memory_size": 10000,
@@ -315,14 +315,13 @@ def save_ai_config(ai_config):
     except Exception as e:
         print(f"Error saving AI config to {ai_config_path}: {e}")
 
+# config.py
 def load_ai_specific_config(ai_code):
-    """بارگذاری تنظیمات خاص AI از فایل کانفیگ خودش (مثل al_config.json)"""
     ai_specific_config_path = get_ai_specific_config_path(ai_code)
     try:
         if ai_specific_config_path.exists():
             with open(ai_specific_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                # اعتبارسنجی و تکمیل تنظیمات
                 for player in ["player_1", "player_2"]:
                     if player not in config:
                         config[player] = DEFAULT_AI_PARAMS.copy()
@@ -334,7 +333,7 @@ def load_ai_specific_config(ai_code):
                                 for key, value in param_values.items():
                                     if key not in config[player][param_type]:
                                         config[player][param_type][key] = value
-                print(f"Loaded AI specific config from {ai_specific_config_path}")
+                #print(f"Loaded AI specific config from {ai_specific_config_path}: {config}")
         else:
             print(f"AI specific config file not found at {ai_specific_config_path}, creating with default config")
             config = {

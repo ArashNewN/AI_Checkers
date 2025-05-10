@@ -8,8 +8,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import sys
+
+# وارد کردن‌ها با فرض دایرکتوری ماژول
 from .base_ai import BaseAI
-from .config import load_config, load_ai_config
+from .config import load_ai_config, load_ai_specific_config
 from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
 
@@ -20,105 +22,80 @@ AI_METADATA = {
     "code": "al"
 }
 
-project_dir = Path(__file__).parent
+project_dir = Path(__file__).parent  # دایرکتوری ماژول (مثل old/<module_folder>)
 if str(project_dir) not in sys.path:
     sys.path.append(str(project_dir))
 
-parent_dir = project_dir.parent
+parent_dir = project_dir.parent  # دایرکتوری old
 if str(parent_dir) not in sys.path:
     sys.path.append(str(parent_dir))
 
 class AdvancedNN(nn.Module):
     def __init__(self, ai_config, player_key):
         super(AdvancedNN, self).__init__()
-        # استفاده از تنظیمات از ai_config
-        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
-        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
+        # دسترسی به ai_configs
+        nn_params = ai_config["ai_configs"][player_key]["params"].get("advanced_nn_params", {})
+        network_params = ai_config["ai_configs"][player_key]["params"].get("network_params", {})
+        self.board_size = network_params.get("board_size", 8)
+        self.input_channels = nn_params.get("input_channels", 3)
+        conv1_filters = nn_params.get("conv1_filters", 64)
+        conv1_kernel_size = nn_params.get("conv1_kernel_size", 3)
+        conv1_padding = nn_params.get("conv1_padding", 1)
+        residual_block1_filters = nn_params.get("residual_block1_filters", 64)
+        residual_block2_filters = nn_params.get("residual_block2_filters", 128)
+        conv2_filters = nn_params.get("conv2_filters", 128)
+        self.attention_embed_dim = nn_params.get("attention_embed_dim", 128)
+        attention_num_heads = nn_params.get("attention_num_heads", 4)
+        fc_layer_sizes = nn_params.get("fc_layer_sizes", [512, 256])
+        dropout_rate = nn_params.get("dropout_rate", 0.3)
 
-        self.conv1 = nn.Conv2d(
-            nn_params["input_channels"],
-            nn_params["conv1_filters"],
-            kernel_size=nn_params["conv1_kernel_size"],
-            padding=nn_params["conv1_padding"]
-        )
+        self.conv1 = nn.Conv2d(self.input_channels, conv1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding)
         self.residual_block1 = nn.Sequential(
-            nn.Conv2d(
-                nn_params["residual_block1_filters"],
-                nn_params["residual_block1_filters"],
-                kernel_size=nn_params["conv1_kernel_size"],
-                padding=nn_params["conv1_padding"]
-            ),
+            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
-            nn.BatchNorm2d(nn_params["residual_block1_filters"]),
-            nn.Conv2d(
-                nn_params["residual_block1_filters"],
-                nn_params["residual_block1_filters"],
-                kernel_size=nn_params["conv1_kernel_size"],
-                padding=nn_params["conv1_padding"]
-            ),
+            nn.BatchNorm2d(residual_block1_filters),
+            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
-            nn.BatchNorm2d(nn_params["residual_block1_filters"]),
+            nn.BatchNorm2d(residual_block1_filters),
         )
-        self.conv2 = nn.Conv2d(
-            nn_params["residual_block1_filters"],
-            nn_params["conv2_filters"],
-            kernel_size=nn_params["conv1_kernel_size"],
-            padding=nn_params["conv1_padding"]
-        )
+        self.conv2 = nn.Conv2d(residual_block1_filters, conv2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding)
         self.residual_block2 = nn.Sequential(
-            nn.Conv2d(
-                nn_params["residual_block2_filters"],
-                nn_params["residual_block2_filters"],
-                kernel_size=nn_params["conv1_kernel_size"],
-                padding=nn_params["conv1_padding"]
-            ),
+            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
-            nn.BatchNorm2d(nn_params["residual_block2_filters"]),
-            nn.Conv2d(
-                nn_params["residual_block2_filters"],
-                nn_params["residual_block2_filters"],
-                kernel_size=nn_params["conv1_kernel_size"],
-                padding=nn_params["conv1_padding"]
-            ),
+            nn.BatchNorm2d(residual_block2_filters),
+            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
-            nn.BatchNorm2d(nn_params["residual_block2_filters"]),
+            nn.BatchNorm2d(residual_block2_filters),
         )
 
-        self.attention = nn.MultiheadAttention(
-            embed_dim=nn_params["attention_embed_dim"],
-            num_heads=nn_params["attention_num_heads"],
-            batch_first=True
-        )
+        self.attention = nn.MultiheadAttention(embed_dim=self.attention_embed_dim, num_heads=attention_num_heads, batch_first=True)
 
-        fc_input_size = nn_params["residual_block2_filters"] * board_size * board_size
+        fc_input_size = residual_block2_filters * self.board_size * self.board_size
         fc_layers = []
         prev_size = fc_input_size
-        for size in nn_params["fc_layer_sizes"]:
+        for size in fc_layer_sizes:
             fc_layers.extend([
                 nn.Linear(prev_size, size),
                 nn.ReLU(),
-                nn.Dropout(nn_params["dropout_rate"])
+                nn.Dropout(dropout_rate)
             ])
             prev_size = size
-        fc_layers.append(nn.Linear(prev_size, board_size * board_size))
+        fc_layers.append(nn.Linear(prev_size, self.board_size * self.board_size))
         self.fc_layers = nn.Sequential(*fc_layers)
 
-        self.residual = nn.Linear(board_size * board_size * nn_params["input_channels"], board_size * board_size)
+        self.residual = nn.Linear(self.board_size * self.board_size * self.input_channels, self.board_size * self.board_size)
 
-    def forward(self, state, ai_config, player_key):
-        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
-        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
-
+    def forward(self, state):
         batch_size = state.size(0)
-        x = state.view(batch_size, nn_params["input_channels"], board_size, board_size)
+        x = state.view(batch_size, self.input_channels, self.board_size, self.board_size)
         x = F.relu(self.conv1(x))
         x = x + self.residual_block1(x)
         x = F.relu(self.conv2(x))
         x = x + self.residual_block2(x)
 
-        attn_input = x.view(batch_size, board_size * board_size, nn_params["attention_embed_dim"])
+        attn_input = x.view(batch_size, self.board_size * self.board_size, self.attention_embed_dim)
         attn_output, _ = self.attention(attn_input, attn_input, attn_input)
-        attn_output = attn_output.view(batch_size, nn_params["residual_block2_filters"], board_size, board_size)
+        attn_output = attn_output.view(batch_size, self.residual_block2[0].in_channels, self.board_size, self.board_size)
 
         conv_out = attn_output.view(batch_size, -1)
         fc_out = self.fc_layers(conv_out)
@@ -131,19 +108,20 @@ class AdvancedAI(BaseAI):
     def __init__(self, game, model_name, ai_id, config=None):
         super().__init__(game, model_name, ai_id, settings=None)
         config_dict = config if config else {}
-        ai_config = config_dict.get("ai_configs", load_ai_config())
+        ai_config = config_dict if config_dict else load_ai_config()
         player_key = "player_1" if ai_id == "ai_1" else "player_2"
 
-        self.ability = min(max(int(ai_config[player_key].get("ability_level", 5)), 1), 10)
+        # دسترسی به ai_configs
+        self.ability = min(max(int(ai_config["ai_configs"][player_key].get("ability_level", 5)), 1), 10)
         self.az_id = ai_id
 
-        pth_dir = Path(__file__).parent.parent / "pth"
+        pth_dir = parent_dir / "pth"  # دایرکتوری pth تو old
         pth_dir.mkdir(exist_ok=True)
         self.model_path = pth_dir / f"{model_name}_{ai_id}.pth"
         self.backup_path = pth_dir / f"backup_{model_name}_{ai_id}.pth"
         self.long_term_memory_path = pth_dir / f"long_term_memory_{ai_id}.json"
 
-        self.training_params = ai_config[player_key]["params"].get("training_params", {})
+        self.training_params = ai_config["ai_configs"][player_key]["params"].get("training_params", {})
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.policy_net = AdvancedNN(ai_config, player_key).to(self.device)
@@ -165,6 +143,10 @@ class AdvancedAI(BaseAI):
         if self.model_path.exists():
             self.policy_net.load_state_dict(torch.load(self.model_path, map_location=self.device))
             self.target_net.load_state_dict(self.policy_net.state_dict())
+
+        self.player_number = 1 if ai_id == "ai_1" else 2
+        self.color = "white" if self.player_number == 1 else "black"
+        self.memory = deque(maxlen=self.training_params.get("memory_size", 10000))
 
     def set_game(self, game):
         self.game = game
@@ -194,7 +176,7 @@ class AdvancedAI(BaseAI):
         valid_moves = {}
         ai_config = load_ai_config()
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
-        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
+        board_size = ai_config["ai_configs"][player_key]["params"]["network_params"].get("board_size", 8)
         print(f"Getting valid moves for {self.ai_id} (color: {self.color}) with board shape: {board.shape}")
         for row in range(board_size):
             for col in range(board_size):
@@ -211,12 +193,11 @@ class AdvancedAI(BaseAI):
         return valid_moves
 
     def get_state(self, board):
-        """تبدیل حالت تخته به فرمت شبکه عصبی."""
         ai_config = load_ai_config()
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
-        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
-        nn_params = ai_config[player_key]["params"]["advanced_nn_params"]
-        state = np.zeros((nn_params["input_channels"], board_size, board_size))
+        board_size = ai_config["ai_configs"][player_key]["params"]["network_params"].get("board_size", 8)
+        input_channels = ai_config["ai_configs"][player_key]["params"]["advanced_nn_params"].get("input_channels", 3)
+        state = np.zeros((input_channels, board_size, board_size))
         for row in range(board_size):
             for col in range(board_size):
                 piece = board[row, col]
@@ -233,7 +214,6 @@ class AdvancedAI(BaseAI):
         return torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
     def act(self, valid_moves):
-        """انتخاب حرکت بر اساس Q-values."""
         print(f"AdvancedAI.act called with valid_moves: {valid_moves}")
         if not valid_moves:
             print("No valid moves in act")
@@ -246,11 +226,11 @@ class AdvancedAI(BaseAI):
         state = self.get_state(self.game.board.board)
         ai_config = load_ai_config()
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
+        board_size = ai_config["ai_configs"][player_key]["params"]["network_params"].get("board_size", 8)
         print(f"State shape: {state.shape}")
         with torch.no_grad():
-            q_values = self.policy_net(state, ai_config, player_key)
+            q_values = self.policy_net(state)
             print(f"Q-values shape: {q_values.shape}")
-            board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
             valid_q_values = {}
             for (position, move), skipped in valid_moves.items():
                 index = move[0] * board_size + move[1]
@@ -268,20 +248,28 @@ class AdvancedAI(BaseAI):
             print("Warning: No valid Q-values, selecting first valid move")
             return list(valid_moves.keys())[0]
 
-    def update(self, move, reward):
-        """به‌روزرسانی مدل با تجربه جدید."""
-        state = self.get_state(self.game.board.board)
-        action = move[1] if move else None
-        next_state = self.get_state(self.game.board.board)
+    def update(self, move, reward, board_before, board_after):
+        print(f"AdvancedAI.update called for {self.ai_id} with move: {move}, reward: {reward}")
+        if move is None:
+            print("Warning: Move is None, skipping update")
+            return
+
+        state = self.get_state(board_before)
+        next_state = self.get_state(board_after)
+        action = move[1] if isinstance(move, tuple) and len(move) == 2 else None
         done = self.game.game_over
 
-        self.remember(state, action, next_state, done)
+        if action is None:
+            print("Warning: Invalid action, skipping update")
+            return
+
+        self.remember(state, action, reward, next_state, done)
         self.replay()
         self.update_target_network()
         self.save_model()
 
-    def remember(self, state, action, next_state, done):
-        reward = self.reward_calculator.get_reward()
+    def remember(self, state, action, reward, next_state, done):
+        print(f"Remembering experience: reward={reward}, done={done}")
         self.current_episode_reward += reward
         self.memory.append((state, action, reward, next_state, done))
         self.save_important_experience(state, action, reward, next_state, done)
@@ -294,9 +282,10 @@ class AdvancedAI(BaseAI):
     def replay(self):
         ai_config = load_ai_config()
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
-        training_params = ai_config[player_key]["params"]["training_params"]
+        training_params = ai_config["ai_configs"][player_key]["params"].get("training_params", {})
         batch_size = training_params.get("batch_size", 128)
         if len(self.memory) < batch_size:
+            print(f"Memory size {len(self.memory)} is less than batch size {batch_size}, skipping replay")
             return
 
         batch = list(self.memory)[-batch_size:]
@@ -308,14 +297,14 @@ class AdvancedAI(BaseAI):
         states, actions, rewards, next_states, dones = zip(*batch)
         states = torch.cat(states)
         next_states = torch.cat(next_states)
-        board_size = ai_config[player_key]["params"]["network_params"]["board_size"]
-        actions = torch.tensor([(a[0] * board_size + a[1]) for a in actions if a], device=self.device)
+        board_size = ai_config["ai_configs"][player_key]["params"]["network_params"].get("board_size", 8)
+        actions = torch.tensor([a[0] * board_size + a[1] for a in actions if a is not None], device=self.device)
         rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
         dones = torch.tensor(dones, dtype=torch.float32, device=self.device)
 
-        current_q_values = self.policy_net(states, ai_config, player_key).gather(1, actions.unsqueeze(1))
+        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1))
         with torch.no_grad():
-            max_next_q_values = self.target_net(next_states, ai_config, player_key).max(1)[0]
+            max_next_q_values = self.target_net(next_states).max(1)[0]
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
         loss = nn.MSELoss()(current_q_values.squeeze(), target_q_values)

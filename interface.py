@@ -34,7 +34,7 @@ class GameInterface:
     def __init__(self, settings):
         self.settings = settings
         self.config = load_config()
-        print("Config Data:", self.config)
+        #print("Config Data:", self.config)
         self.WINDOW_WIDTH = self.config['window_width']
         self.WINDOW_HEIGHT = self.config['window_height']
         self.BOARD_WIDTH = self.config['board_width']
@@ -684,14 +684,28 @@ class GameInterface:
             if self.settings.game_mode == "ai_vs_ai":
                 if self.player_1_move_ready and not self.game.turn:
                     print("Player 1 AI move ready")
-                    self.player_1_move_ready = False
-                    self._move_start_time = current_time
-                    self.game.make_ai_move("ai_1")  # مشخصاً ai_1 برای player 1
+                    if "ai_1" in self.game.ai_players:
+                        self.player_1_move_ready = False
+                        self._move_start_time = current_time
+                        success = self.game.make_ai_move("ai_1")  # مشخصاً ai_1 برای player 1
+                        if not success:
+                            print(f"[Interface.update] AI move failed for ai_1, skipping")
+                            return
+                    else:
+                        print(f"[Interface.update] No AI available for ai_1, skipping")
+                        return
                 elif self.player_2_move_ready and self.game.turn:
                     print("Player 2 AI move ready")
-                    self.player_2_move_ready = False
-                    self._move_start_time = current_time
-                    self.game.make_ai_move("ai_2")  # مشخصاً ai_2 برای player 2
+                    if "ai_2" in self.game.ai_players:
+                        self.player_2_move_ready = False
+                        self._move_start_time = current_time
+                        success = self.game.make_ai_move("ai_2")  # مشخصاً ai_2 برای player 2
+                        if not success:
+                            print(f"[Interface.update] AI move failed for ai_2, skipping")
+                            return
+                    else:
+                        print(f"[Interface.update] No AI available for ai_2, skipping")
+                        return
                 elif not self.player_1_move_ready and not self.game.turn:
                     if current_time - self._move_start_time >= self.settings.ai_pause_time:
                         print("Player 1 AI move ready after pause")
@@ -703,9 +717,16 @@ class GameInterface:
             elif self.settings.game_mode == "human_vs_ai" and self.game.turn:
                 if self.player_2_move_ready:
                     print("Player 2 AI move ready (human_vs_ai)")
-                    self.player_2_move_ready = False
-                    self._move_start_time = current_time
-                    self.game.make_ai_move("ai_2")
+                    if "ai_2" in self.game.ai_players:
+                        self.player_2_move_ready = False
+                        self._move_start_time = current_time
+                        success = self.game.make_ai_move("ai_2")
+                        if not success:
+                            print(f"[Interface.update] AI move failed for ai_2 (human_vs_ai), skipping")
+                            return
+                    else:
+                        print(f"[Interface.update] No AI available for ai_2 (human_vs_ai), skipping")
+                        return
                 elif current_time - self._move_start_time >= self.settings.ai_pause_time:
                     print("Player 2 AI move ready after pause (human_vs_ai)")
                     self.player_2_move_ready = True

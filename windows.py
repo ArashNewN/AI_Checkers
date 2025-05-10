@@ -1254,6 +1254,84 @@ class AZProgressWindow(BaseWindow):
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
 
+class AIProgressWindow(BaseWindow):
+    def __init__(self, interface, ai_id, root=None):
+        super().__init__(interface, root)
+        self.ai_id = ai_id
+        self.ai_config = load_ai_config()
+        self.ai_code = self.ai_config["ai_configs"][
+            "player_1" if ai_id == "ai_1" else "player_2"
+        ].get("ai_code", "default")
+        self.create_widgets()
+
+    def create_widgets(self):
+        self.create_window(
+            f"{LANGUAGES[self.settings.language]['ai_progress']} ({self.ai_id})",
+            self.config.get("progress_window_width", 600),
+            self.config.get("progress_window_height", 400),
+        )
+
+        table_frame = ttk.Frame(self.window)
+        table_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        headers = ["Parameter", "Shape", "Num Elements"]
+        if self.settings.language == "fa":
+            headers = ["پارامتر", "شکل", "تعداد عناصر"]
+
+        for col, header in enumerate(headers):
+            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(
+                row=0, column=col, padx=5, pady=2, sticky="w"
+            )
+
+        model_data = {}
+        total_params = 0
+        pth_file = project_dir / "pth" / f"{self.ai_code}_{self.ai_id}.pth"
+
+        if os.path.exists(pth_file):
+            try:
+                model_data = torch.load(pth_file, map_location=torch.device("cpu"))
+                for key, tensor in model_data.items():
+                    total_params += tensor.numel()
+            except Exception as e:
+                model_data = {"Error": f"Failed to load model: {e}"}
+        else:
+            model_data = {"Error": f"Model file {pth_file} not found."}
+
+        if "Error" not in model_data:
+            for row, (key, tensor) in enumerate(model_data.items(), 1):
+                ttk.Label(table_frame, text=key).grid(
+                    row=row, column=0, sticky="w", padx=5, pady=2
+                )
+                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(
+                    row=row, column=1, sticky="w", padx=5, pady=2
+                )
+                ttk.Label(table_frame, text=str(tensor.numel())).grid(
+                    row=row, column=2, sticky="w", padx=5, pady=2
+                )
+
+            ttk.Label(
+                table_frame,
+                text="Total Parameters"
+                if self.settings.language == "en"
+                else "مجموع پارامترها",
+                font=("Arial", 10, "bold"),
+            ).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(table_frame, text=str(total_params)).grid(
+                row=row + 1, column=2, sticky="w", padx=5, pady=2
+            )
+        else:
+            ttk.Label(table_frame, text=model_data["Error"]).grid(
+                row=1, column=0, columnspan=3, padx=5, pady=10
+            )
+
+        ttk.Button(
+            self.window,
+            text=LANGUAGES[self.settings.language]["close"],
+            command=self.close,
+            style="Custom.TButton",
+        ).pack(pady=10)
+
+
 class HelpWindow(BaseWindow):
 
     def create_widgets(self):
