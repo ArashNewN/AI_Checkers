@@ -2,7 +2,7 @@ import pygame
 import os
 import numpy as np
 from .game import Game
-from .windows import SettingsWindow, ALProgressWindow, AZProgressWindow, HelpWindow, AboutWindow
+from .windows import SettingsWindow, AIProgressWindow, HelpWindow, AboutWindow
 from .config import load_config, save_stats
 from .constants import LANGUAGES
 from .utils import hex_to_rgb
@@ -422,16 +422,14 @@ class GameInterface:
         self.screen.fill(self.settings.board_color_1)
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, (0, 0, self.WINDOW_WIDTH, self.MENU_HEIGHT))
 
-        al_progress_text = self.small_font.render(LANGUAGES[self.settings.language]["al_progress"], True, self.BLACK)
-        self.screen.blit(al_progress_text, (10, 5))
-        az_progress_text = self.small_font.render(LANGUAGES[self.settings.language]["az_progress"], True, self.BLACK)
-        self.screen.blit(az_progress_text, (130, 5))
         settings_text = self.small_font.render(LANGUAGES[self.settings.language]["settings"], True, self.BLACK)
-        self.screen.blit(settings_text, (260, 5))
+        self.screen.blit(settings_text, (10, 5))
+        ai_progress_text = self.small_font.render(LANGUAGES[self.settings.language]["ai_progress"], True, self.BLACK)
+        self.screen.blit(ai_progress_text, (120, 5))
         help_text = self.small_font.render(LANGUAGES[self.settings.language]["help"], True, self.BLACK)
-        self.screen.blit(help_text, (355, 5))
+        self.screen.blit(help_text, (250, 5))
         about_text = self.small_font.render(LANGUAGES[self.settings.language]["about_me"], True, self.BLACK)
-        self.screen.blit(about_text, (420, 5))
+        self.screen.blit(about_text, (350, 5))
         pygame.draw.rect(self.screen, self.BLUE,
                          (0, self.MENU_HEIGHT, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,
                           self.BOARD_WIDTH + self.BORDER_THICKNESS * 3), self.BORDER_THICKNESS)
@@ -727,32 +725,28 @@ class GameInterface:
         self.new_game_button.draw(self.screen)
         self.reset_scores_button.draw(self.screen)
 
-    def _handle_events(self, settings_window, al_progress_window, az_progress_window, help_window, about_window):
+    def _handle_events(self, settings_window, ai_progress_window, help_window, about_window):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
             if event.type == pygame.MOUSEBUTTONDOWN:
                 pos = pygame.mouse.get_pos()
                 if pos[1] < self.MENU_HEIGHT:
-                    if not (settings_window.is_open or al_progress_window.is_open or az_progress_window.is_open or
+                    if not (settings_window.is_open or ai_progress_window.is_open or
                             help_window.is_open or about_window.is_open):
-                        if pos[0] < 130:
-                            print("Opening al_progress_window")
-                            al_progress_window.create_widgets()
-                            al_progress_window.is_open = True
-                        elif 130 <= pos[0] < 260:
-                            print("Opening az_progress_window")
-                            az_progress_window.create_widgets()
-                            az_progress_window.is_open = True
-                        elif 260 <= pos[0] < 355:
+                        if pos[0] < 120:
                             print("Opening settings_window")
                             settings_window.create_widgets()
                             settings_window.is_open = True
-                        elif 355 <= pos[0] < 420:
+                        elif 120 <= pos[0] < 250:
+                            print("Opening ai_progress_window")
+                            ai_progress_window.create_widgets()
+                            ai_progress_window.is_open = True
+                        elif 250 <= pos[0] < 350:
                             print("Opening help_window")
                             help_window.create_widgets()
                             help_window.is_open = True
-                        elif 420 <= pos[0] < 480:
+                        elif 350 <= pos[0] < 450:
                             print("Opening about_window")
                             about_window.create_widgets()
                             about_window.is_open = True
@@ -902,8 +896,8 @@ class GameInterface:
         self.draw_game()
         pygame.display.update()
 
-    def close_windows(self, settings_window, al_progress_window, az_progress_window, help_window, about_window):
-        for window in [settings_window, al_progress_window, az_progress_window, help_window, about_window]:
+    def close_windows(self, settings_window, ai_progress_window, help_window, about_window):
+        for window in [settings_window, ai_progress_window, help_window, about_window]:
             if window.is_open:
                 window.close()
         try:
@@ -978,8 +972,7 @@ class GameInterface:
 
     def run(self):
         settings_window = SettingsWindow(self, self.root)
-        al_progress_window = ALProgressWindow(self, self.root)
-        az_progress_window = AZProgressWindow(self, self.root)
+        ai_progress_window = AIProgressWindow(self, self.root)
         help_window = HelpWindow(self, self.root)
         about_window = AboutWindow(self, self.root)
 
@@ -987,7 +980,7 @@ class GameInterface:
 
         running = True
         while running:
-            running = self._handle_events(settings_window, al_progress_window, az_progress_window, help_window,
+            running = self._handle_events(settings_window, ai_progress_window, help_window,
                                           about_window)
 
             self.update()
@@ -1009,6 +1002,6 @@ class GameInterface:
 
             clock.tick(self.config.get('fps', 60))
 
-        self.close_windows(settings_window, al_progress_window, az_progress_window, help_window, about_window)
+        self.close_windows(settings_window, ai_progress_window, help_window, about_window)
         pygame.quit()
         sys.exit()

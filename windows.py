@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
 from .settings import GameSettings
 from .constants import LANGUAGES
-from .config import save_config, load_config, load_ai_config, save_ai_config, load_ai_specific_config, save_ai_specific_config, DEFAULT_AI_PARAMS
+from .config import save_config, load_config, load_ai_config, save_ai_config, load_ai_specific_config, \
+    save_ai_specific_config, DEFAULT_AI_PARAMS
 from .utils import hex_to_rgb, rgb_to_hex
 import torch
 import os
@@ -10,8 +11,12 @@ import json
 import sys
 import importlib
 from pathlib import Path
+import logging
 
+# تنظیم لاگ‌گیری
+# logging.basicConfig(level=logging.INFO, filename=Path(__file__).parent.parent / "logs" / "app.log")
 
+# مسیر پروژه
 project_dir = Path(__file__).parent.parent
 if str(project_dir) not in sys.path:
     sys.path.append(str(project_dir))
@@ -34,13 +39,16 @@ class BaseWindow:
         self.window = None
         self.is_open = False
         self.config = load_config()
+        # تعریف project_dir بدون وابستگی به pth_dir
+        self.project_dir = Path(__file__).parent.parent  # مسیر ریشه پروژه
+        self.pth_dir = self.project_dir / "pth"  # مسیر پیش‌فرض برای pth
         configure_styles()
 
     def create_window(self, title, width=None, height=None):
         if self.is_open or self.window:
             return
         self.window = tk.Toplevel(self.root) if self.root else tk.Toplevel()
-        self.tk = self.window.tk  # تنظیم ویژگی tk
+        self.tk = self.window.tk
         self.window.title(title)
         width = width or self.config.get("settings_window_width", 400)
         height = height or self.config.get("settings_window_height", 300)
@@ -72,6 +80,15 @@ class BaseWindow:
                 except tk.TclError:
                     pass
 
+    def log_error(self, message):
+        logging.error(message)
+        if self.window and self.is_open:
+            messagebox.showerror(
+                LANGUAGES[self.settings.language]["error"],
+                message,
+                parent=self.window
+            )
+
 
 class SettingsWindow(BaseWindow):
     def __init__(self, interface, root=None):
@@ -79,10 +96,8 @@ class SettingsWindow(BaseWindow):
         self.temp_settings = GameSettings()
         self.copy_current_settings()
         self.ai_types = ["none"]
-        self.entries = {}  # For advanced config entries
-        # لود تنظیمات AI
+        self.entries = {}
         self.load_ai_config()
-        # ساخت رابط کاربری
 
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["settings"],
@@ -109,22 +124,17 @@ class SettingsWindow(BaseWindow):
                    command=self.reset, style="Custom.TButton").pack(side=side, padx=5)
 
         self.window.protocol("WM_DELETE_WINDOW", self.close)
-
-        # به‌روزرسانی منوهای کشویی بعد از ساخت تب‌ها
         self.update_ai_dropdowns()
 
     def load_ai_config(self):
-        """بارگذاری تنظیمات AI از ai_config.json با استفاده از تابع config.py"""
         ai_config = load_ai_config()
         self.ai_types = ["none"] + list(ai_config.get("ai_types", {}).keys())
-        # به‌روزرسانی تنظیمات موقت با تنظیمات AI
         self.temp_settings.ai_configs = ai_config.get("ai_configs", {
             "player_1": {"ai_type": "none", "ai_code": None, "ability_level": 5, "params": {}},
             "player_2": {"ai_type": "none", "ai_code": None, "ability_level": 5, "params": {}}
         })
 
     def check_ai_module(self, ai_type):
-        """بررسی وجود ماژول AI با استفاده از ai_config.json"""
         if ai_type == "none":
             return True
         ai_config = load_ai_config()
@@ -132,7 +142,6 @@ class SettingsWindow(BaseWindow):
         return ai_type in ai_config["ai_types"]
 
     def update_ai_dropdowns(self):
-        """بازسازی کامل منوهای کشویی انتخاب AI و به‌روزرسانی ai_config.json"""
         ai_config = load_ai_config()
         print(f"Updating AI dropdowns with ai_types: {ai_config['ai_types'].keys()}")
 
@@ -164,16 +173,12 @@ class SettingsWindow(BaseWindow):
             print(f"Reset player_2 AI to 'none' (was {self.player_2_ai_type_var.get()})")
 
     def _update_player_ai_config(self, player, ai_type):
-        """به‌روزرسانی temp_settings برای بازیکن با تنظیمات پیش‌فرض"""
         ai_config = load_ai_config()
         print(f"Updating {player} temp_settings to AI: {ai_type}")
 
         if ai_type != "none" and ai_type not in ai_config["ai_types"]:
             print(f"Error: AI type '{ai_type}' not found in ai_config['ai_types']")
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"ماژول AI {ai_type} برای {player} پیدا نشد"
-            )
+            self.log_error(f"ماژول AI {ai_type} برای {player} پیدا نشد")
             self.player_1_ai_type_var.set("none") if player == "player_1" else self.player_2_ai_type_var.set("none")
             ai_type = "none"
 
@@ -181,7 +186,6 @@ class SettingsWindow(BaseWindow):
         if ai_type != "none":
             code = ai_config["ai_types"][ai_type]["code"]
             self.temp_settings.ai_configs[player]["ai_code"] = code
-            # لود تنظیمات از فایل کانفیگ مجزا
             ai_specific_config = load_ai_specific_config(code)
             self.temp_settings.ai_configs[player]["params"] = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
             self.temp_settings.ai_configs[player]["ability_level"] = 5
@@ -194,48 +198,38 @@ class SettingsWindow(BaseWindow):
 
     def search_ai_modules(self):
         from a.base_ai import BaseAI
-        project_dir = Path(__file__).parent
-        print(f"دایرکتوری پروژه: {project_dir}")
-        root_dir = project_dir.parent
-        print(f"ریشه پروژه: {root_dir}")
-        if str(root_dir) not in sys.path:
-            sys.path.append(str(root_dir))
-        print(f"sys.path: {sys.path}")
-
+        config = load_config()
+        ai_dirs = config.get("ai_module_dirs", ["a"])
         ai_modules = []
-        for py_file in project_dir.glob("*.py"):
-            module_name = py_file.stem
-            if module_name in ["__init__", "windows", "windows n",
-                               "با تنظیمات حرفه ای ادونس کانفیگ و حفظ کلاس ستینگ ویندوز بدون ترجمهwindows"]:
-                print(f"نادیده گرفتن فایل: {module_name}")
-                continue
 
-            try:
-                module = importlib.import_module(f"a.{module_name}")
-                print(f"ماژول a.{module_name} با موفقیت بارگذاری شد")
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if isinstance(attr, type) and issubclass(attr, BaseAI) and attr != BaseAI:
-                        metadata = getattr(attr, "metadata", None)
-                        if metadata and all(key in metadata for key in ["type", "description", "code"]):
-                            ai_modules.append({
-                                "display": module_name,
-                                "default_type": metadata["type"],
-                                "default_description": metadata["description"],
-                                "default_code": metadata["code"],
-                                "class_name": attr_name
-                            })
-                            print(f"ماژول شناسایی‌شده: {module_name}, کلاس: {attr_name}, متادیتا: {metadata}")
-                        else:
-                            print(f"ماژول a.{module_name} رد شد: AI_METADATA معتبر پیدا نشد")
-                else:
-                    print(f"هیچ کلاس AI معتبری در a.{module_name} پیدا نشد")
-            except Exception as e:
-                print(f"خطا در بارگذاری ماژول a.{module_name}: {str(e)}")
-                continue
+        for ai_dir in ai_dirs:
+            module_dir = self.project_dir / ai_dir
+            for py_file in module_dir.glob("*.py"):
+                module_name = py_file.stem
+                if module_name in ["__init__", "windows", "base_ai"]:
+                    print(f"Skipping file: {module_name}")
+                    continue
+                try:
+                    module = importlib.import_module(f"{ai_dir}.{module_name}")
+                    print(f"Loaded module: {ai_dir}.{module_name}")
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if isinstance(attr, type) and issubclass(attr, BaseAI) and attr != BaseAI:
+                            metadata = getattr(attr, "metadata", None)
+                            if metadata and all(key in metadata for key in ["type", "description", "code"]):
+                                ai_modules.append({
+                                    "display": module_name,
+                                    "default_type": metadata["type"],
+                                    "default_description": metadata["description"],
+                                    "default_code": metadata["code"],
+                                    "class_name": attr_name
+                                })
+                                print(f"Found AI: {module_name}.{attr_name}, metadata: {metadata}")
+                            else:
+                                print(f"Skipped {module_name}.{attr_name}: Invalid metadata")
+                except Exception as e:
+                    print(f"Error loading {ai_dir}.{module_name}: {str(e)}")
 
-        self.ai_modules = ai_modules
-        # اضافه کردن ماژول‌های پیدا‌شده به ai_config.json
         ai_config = load_ai_config()
         for module in ai_modules:
             ai_type = module["default_type"]
@@ -243,18 +237,17 @@ class SettingsWindow(BaseWindow):
             used_codes = {ai.get("code") for ai in ai_config["available_ais"]}
             if ai_type not in ai_config["ai_types"] and code not in used_codes:
                 ai_config["ai_types"][ai_type] = {
-                    "module": f"a.{module['display']}",
+                    "module": f"{ai_dir}.{module['display']}",
                     "class": module["class_name"],
                     "description": module["default_description"],
                     "code": code
                 }
                 ai_config["available_ais"].append({
                     "type": ai_type,
-                    "module": f"a.{module['display']}",
+                    "module": f"{ai_dir}.{module['display']}",
                     "class": module["class_name"],
                     "code": code
                 })
-                # ساخت فایل کانفیگ مجزا
                 save_ai_specific_config(code, {
                     "player_1": DEFAULT_AI_PARAMS.copy(),
                     "player_2": DEFAULT_AI_PARAMS.copy()
@@ -267,18 +260,15 @@ class SettingsWindow(BaseWindow):
         ai_frame = ttk.Frame(notebook, padding="10")
         notebook.add(ai_frame, text=LANGUAGES[self.settings.language]["ai_settings_tab"])
 
-        # جدول برای نمایش AI‌های موجود
         self.ai_list = ttk.Treeview(ai_frame, columns=("Type", "Code", "Description"), show="headings", height=4)
         self.ai_list.heading("Type", text=LANGUAGES[self.settings.language]["ai_type"])
         self.ai_list.heading("Code", text=LANGUAGES[self.settings.language]["ai_code"])
         self.ai_list.heading("Description", text=LANGUAGES[self.settings.language]["description"])
         self.ai_list.pack(fill="both", expand=False, pady=5)
 
-        # بخش AI Players
         ai_players_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_players"], padding=10)
         ai_players_frame.pack(fill="x", pady=5)
 
-        # Player 1: AI Type و Ability
         player_1_container = ttk.Frame(ai_players_frame)
         player_1_container.pack(fill="x", pady=2)
         ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["player_1_ai"]).pack(side="left", padx=5)
@@ -316,7 +306,6 @@ class SettingsWindow(BaseWindow):
         self.player_1_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_1_ability_menu["menu"].config(font=("Arial", 10))
 
-        # Player 2: AI Type و Ability
         player_2_container = ttk.Frame(ai_players_frame)
         player_2_container.pack(fill="x", pady=2)
         ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["player_2_ai"]).pack(side="left", padx=5)
@@ -347,7 +336,6 @@ class SettingsWindow(BaseWindow):
         self.player_2_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_2_ability_menu["menu"].config(font=("Arial", 10))
 
-        # بخش AI Pause Time
         pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
         pause_frame.pack(fill="x", pady=5)
         ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
@@ -359,7 +347,6 @@ class SettingsWindow(BaseWindow):
         self.search_ai_modules()
 
     def update_ai_list(self):
-        """به‌روزرسانی لیست AIها با نمایش نام، کد دوحرفی، و توضیحات"""
         self.ai_list.delete(*self.ai_list.get_children())
         ai_config = load_ai_config()
         for ai_type in self.ai_types:
@@ -371,7 +358,6 @@ class SettingsWindow(BaseWindow):
             self.ai_list.insert("", "end", values=(ai_type, code, description))
 
     def copy_current_settings(self):
-        """کپی تنظیمات فعلی به temp_settings"""
         config = load_config()
         ai_config = load_ai_config()
         for key, value in config.items():
@@ -387,7 +373,6 @@ class SettingsWindow(BaseWindow):
         })
 
     def update_ability_levels(self, player):
-        """به‌روزرسانی سطح توانایی AI برای بازیکن مشخص"""
         ability_levels = {
             LANGUAGES[self.settings.language]["very_weak"]: 1,
             LANGUAGES[self.settings.language]["weak"]: 3,
@@ -403,7 +388,6 @@ class SettingsWindow(BaseWindow):
             self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
 
     def update_temp_settings(self, key, value):
-        """Update temp_settings with the new value for the given key."""
         if key == "language":
             self.temp_settings.language = value
         elif key == "game_mode":
@@ -470,7 +454,6 @@ class SettingsWindow(BaseWindow):
         game_frame = ttk.Frame(notebook, padding="10")
         notebook.add(game_frame, text=LANGUAGES[self.settings.language]["game_settings_tab"])
 
-        # تنظیمات زبان
         lang_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["language"], padding=10)
         lang_frame.pack(fill="x", pady=5)
         self.lang_var = tk.StringVar(value=self.temp_settings.language)
@@ -480,7 +463,6 @@ class SettingsWindow(BaseWindow):
         lang_frame.grid_columnconfigure(0, weight=1)
         lang_menu["menu"].config(font=("Arial", 10))
 
-        # تنظیمات حالت بازی
         play_with_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["play_with"], padding=10)
         play_with_frame.pack(fill="x", pady=5)
         self.play_with_var = tk.StringVar(value=self.temp_settings.game_mode)
@@ -495,7 +477,6 @@ class SettingsWindow(BaseWindow):
                         variable=self.play_with_var, value="ai_vs_ai",
                         command=self.toggle_ai_vs_ai_options).pack(side="left", padx=10)
 
-        # تنظیمات حالت AI vs AI
         self.ai_vs_ai_subframe = ttk.Frame(game_frame, padding=10)
         self.ai_vs_ai_subframe.pack(fill="x", pady=5)
         self.ai_vs_ai_var = tk.StringVar(value=self.temp_settings.ai_vs_ai_mode)
@@ -525,7 +506,6 @@ class SettingsWindow(BaseWindow):
         self.hmh_entry.pack(side="left", padx=5)
         self.toggle_repeat_options()
 
-        # تنظیمات شروع‌کننده بازی
         start_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["starting_player"], padding=10)
         start_frame.pack(fill="x", pady=5)
         self.start_var = tk.StringVar(value="player_1" if self.temp_settings.player_starts else "player_2")
@@ -536,7 +516,6 @@ class SettingsWindow(BaseWindow):
         ttk.Radiobutton(start_frame, text=LANGUAGES[self.settings.language]["ai"],
                         variable=self.start_var, value="player_2").pack(side="left", padx=10)
 
-        # تنظیمات تایمر
         timer_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["game_timer"], padding=10)
         timer_frame.pack(fill="x", pady=5)
         self.timer_var = tk.StringVar(value="with_timer" if self.temp_settings.use_timer else "no_timer")
@@ -563,7 +542,6 @@ class SettingsWindow(BaseWindow):
         design_frame = ttk.Frame(notebook, padding="10")
         notebook.add(design_frame, text=LANGUAGES[self.settings.language]["design_tab"])
 
-        # چک‌باکس صدا
         sound_container = ttk.Frame(design_frame)
         sound_container.pack(fill="x", pady=2)
         ttk.Label(sound_container, text=LANGUAGES[self.settings.language]["sound_enabled"]).pack(side="left", padx=5)
@@ -572,7 +550,6 @@ class SettingsWindow(BaseWindow):
                         command=lambda: self.update_temp_settings("sound_enabled", self.sound_var.get())).pack(
             side="left", padx=5)
 
-        # Player 1 Color
         player_1_color_container = ttk.Frame(design_frame)
         player_1_color_container.pack(fill="x", pady=2)
         ttk.Label(player_1_color_container, text=LANGUAGES[self.settings.language]["player_1_color"]).pack(side="left",
@@ -586,7 +563,6 @@ class SettingsWindow(BaseWindow):
         self.p1_color_button.pack(side="left", padx=5)
         self.update_color_button(self.p1_color_button, self.player_1_color_var.get())
 
-        # Player 2 Color
         player_2_color_container = ttk.Frame(design_frame)
         player_2_color_container.pack(fill="x", pady=2)
         ttk.Label(player_2_color_container, text=LANGUAGES[self.settings.language]["player_2_color"]).pack(side="left",
@@ -600,7 +576,6 @@ class SettingsWindow(BaseWindow):
         self.p2_color_button.pack(side="left", padx=5)
         self.update_color_button(self.p2_color_button, self.player_2_color_var.get())
 
-        # Board Color 1
         board_color_1_container = ttk.Frame(design_frame)
         board_color_1_container.pack(fill="x", pady=2)
         ttk.Label(board_color_1_container, text=LANGUAGES[self.settings.language]["board_color_1"]).pack(side="left",
@@ -614,7 +589,6 @@ class SettingsWindow(BaseWindow):
         self.b1_color_button.pack(side="left", padx=5)
         self.update_color_button(self.b1_color_button, self.board_color_1_var.get())
 
-        # Board Color 2
         board_color_2_container = ttk.Frame(design_frame)
         board_color_2_container.pack(fill="x", pady=2)
         ttk.Label(board_color_2_container, text=LANGUAGES[self.settings.language]["board_color_2"]).pack(side="left",
@@ -628,7 +602,6 @@ class SettingsWindow(BaseWindow):
         self.b2_color_button.pack(side="left", padx=5)
         self.update_color_button(self.b2_color_button, self.board_color_2_var.get())
 
-        # Piece Style
         piece_style_container = ttk.Frame(design_frame)
         piece_style_container.pack(fill="x", pady=2)
         ttk.Label(piece_style_container, text=LANGUAGES[self.settings.language]["piece_style"]).pack(side="left",
@@ -640,7 +613,6 @@ class SettingsWindow(BaseWindow):
                        command=lambda _: self.update_temp_settings("piece_style", self.piece_style_var.get())).pack(
             side="left", fill="x", expand=True, padx=5)
 
-        # پیش‌نمایش استایل مهره
         preview_container = ttk.Frame(design_frame)
         preview_container.pack(fill="x", pady=5)
         ttk.Label(preview_container, text="Piece Preview").pack(side="left", padx=5)
@@ -648,7 +620,6 @@ class SettingsWindow(BaseWindow):
         self.preview_canvas.pack(side="left", padx=5)
         self.update_piece_preview()
 
-        # تصاویر سفارشی
         images_container = ttk.Frame(design_frame)
         images_container.pack(fill="x", pady=5)
         ttk.Label(images_container, text=LANGUAGES[self.settings.language]["piece_images"]).pack(side="left", padx=5)
@@ -671,29 +642,41 @@ class SettingsWindow(BaseWindow):
         side = "right" if self.settings.language == "fa" else "left"
         anchor = "e" if side == "left" else "w"
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5, pady=5, sticky=anchor)
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5,
+                                                                                              pady=5, sticky=anchor)
         self.player_1_name_var = tk.StringVar(value=self.temp_settings.player_1_name)
-        ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5,
+                                                                                    sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+                   command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5,
+                                                                                               pady=5, sticky="w")
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5, pady=5, sticky=anchor)
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5,
+                                                                                              pady=5, sticky=anchor)
         self.player_2_name_var = tk.StringVar(value=self.temp_settings.player_2_name)
-        ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5,
+                                                                                    sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5, pady=5, sticky="w")
+                   command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
+                                                                                               pady=5, sticky="w")
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5, pady=5, sticky=anchor)
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
+                                                                                         pady=5, sticky=anchor)
         self.al1_name_var = tk.StringVar(value=self.temp_settings.al1_name)
-        ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
+                                                                               sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5, pady=5, sticky="w")
+                   command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
+                                                                                          pady=5, sticky="w")
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5, pady=5, sticky=anchor)
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
+                                                                                         pady=5, sticky=anchor)
         self.al2_name_var = tk.StringVar(value=self.temp_settings.al2_name)
-        ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
+                                                                               sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5, pady=5, sticky="w")
+                   command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
+                                                                                          pady=5, sticky="w")
 
     def setup_advanced_tab(self, notebook):
         advanced_frame = ttk.Frame(notebook, padding="10")
@@ -706,7 +689,6 @@ class SettingsWindow(BaseWindow):
         AdvancedConfigWindow(self.window, self.settings, self.temp_settings, self.settings.language)
 
     def save_advanced_settings(self):
-        """ذخیره تنظیمات پیشرفته برای AI در ai_config.json"""
         try:
             player1_training_params = {
                 "learning_rate": self.player1_learning_rate_var.get(),
@@ -756,10 +738,7 @@ class SettingsWindow(BaseWindow):
                 LANGUAGES[self.settings.language]["settings_saved"]
             )
         except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}"
-            )
+            self.log_error(f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}")
 
     def toggle_ai_vs_ai_options(self):
         if self.play_with_var.get() == "ai_vs_ai":
@@ -789,19 +768,19 @@ class SettingsWindow(BaseWindow):
             self.update_color_button(button, color)
 
     def update_color_button(self, button, color):
-        """به‌روزرسانی رنگ دکمه با استایل ttk"""
         try:
             style_name = f"Color_{id(button)}.TButton"
             style = ttk.Style()
             style.configure(style_name, background=color)
             button.configure(style=style_name)
         except Exception as e:
-            import logging
             logging.error(f"Error updating button color: {str(e)}")
 
-    def upload_image(self, player):
+    def upload_image(self, player, var=None):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
         if file_path:
+            if var:
+                var.set(file_path)
             if player == "player_1":
                 self.temp_settings.player_1_image = file_path
             elif player == "player_2":
@@ -810,18 +789,8 @@ class SettingsWindow(BaseWindow):
                 self.temp_settings.al1_image = file_path
             elif player == "al2":
                 self.temp_settings.al2_image = file_path
-
-    def upload_piece_image(self, piece_type):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
-        if file_path:
-            if piece_type == "player_1_piece":
-                self.temp_settings.player_1_piece_image = file_path
-            elif piece_type == "player_1_king":
-                self.temp_settings.player_1_king_image = file_path
-            elif piece_type == "player_2_piece":
-                self.temp_settings.player_2_piece_image = file_path
-            elif piece_type == "player_2_king":
-                self.temp_settings.player_2_king_image = file_path
+            elif player in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
+                setattr(self.temp_settings, f"{player}_image", file_path)
 
     def update_piece_preview(self):
         self.preview_canvas.delete("all")
@@ -866,24 +835,15 @@ class SettingsWindow(BaseWindow):
             self.preview_canvas.create_text(center_x, center_y, text="Custom", fill="black")
 
     def save(self):
-        """ذخیره تنظیمات در config.json و فایل‌های کانفیگ AI"""
         try:
             pause_time = self.ai_pause_var.get() if hasattr(self, 'ai_pause_var') else self.temp_settings.ai_pause_time
             if not 0 <= pause_time <= 5000:
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    LANGUAGES[self.settings.language]["ai_pause_error"],
-                    parent=self.window
-                )
+                self.log_error(LANGUAGES[self.settings.language]["ai_pause_error"])
                 return
 
             repeat_hands = self.hmh_var.get() if hasattr(self, 'hmh_var') else self.temp_settings.repeat_hands
             if self.ai_vs_ai_var.get() == "repeat_game" and not 1 <= repeat_hands <= 1000:
-                messagebox.showerror(
-                    LANGUAGES[self.settings.language]["error"],
-                    LANGUAGES[self.settings.language]["invalid_number_hands"],
-                    parent=self.window
-                )
+                self.log_error(LANGUAGES[self.settings.language]["invalid_number_hands"])
                 return
 
             ai_config = load_ai_config()
@@ -892,11 +852,7 @@ class SettingsWindow(BaseWindow):
                 (self.player_2_ai_type_var.get(), LANGUAGES[self.settings.language]["player_2_ai"])
             ]:
                 if ai_type != "none" and ai_type not in ai_config["ai_types"]:
-                    messagebox.showerror(
-                        LANGUAGES[self.settings.language]["error"],
-                        f"{var}: نوع '{ai_type}' پیدا نشد",
-                        parent=self.window
-                    )
+                    self.log_error(f"{var}: نوع '{ai_type}' پیدا نشد")
                     return
 
             config = load_config()
@@ -917,8 +873,8 @@ class SettingsWindow(BaseWindow):
                 "al2_name": self.al2_name_var.get(),
                 "player_1_color": self.player_1_color_var.get(),
                 "player_2_color": self.player_2_color_var.get(),
-                "board_color_1": self.board_color_1_var.get(),  # اصلاح
-                "board_color_2": self.board_color_2_var.get(),  # اصلاح
+                "board_color_1": self.board_color_1_var.get(),
+                "board_color_2": self.board_color_2_var.get(),
                 "player_1_image": self.entries.get("player_1_image",
                                                    tk.StringVar(value=self.temp_settings.player_1_image)).get(),
                 "player_2_image": self.entries.get("player_2_image",
@@ -938,7 +894,6 @@ class SettingsWindow(BaseWindow):
             })
             save_config(config)
 
-            # به‌روزرسانی ai_config و فایل‌های کانفیگ مجزا
             for player in ["player_1", "player_2"]:
                 ai_type = self.temp_settings.ai_configs[player]["ai_type"]
                 ai_config["ai_configs"][player] = {
@@ -980,16 +935,10 @@ class SettingsWindow(BaseWindow):
             self.close()
 
         except Exception as e:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در ذخیره تنظیمات: {str(e)}",
-                parent=self.window
-            )
+            self.log_error(f"خطا در ذخیره تنظیمات: {str(e)}")
 
     def reset(self):
-        """بازنشانی تنظیمات به مقادیر پیش‌فرض و ذخیره در فایل‌های JSON"""
         print("Reset called")
-        # نمایش پاپ‌آپ تأیید
         if not messagebox.askyesno(
                 LANGUAGES[self.settings.language]["warning"],
                 LANGUAGES[self.settings.language]["confirm_reset_all"],
@@ -999,17 +948,15 @@ class SettingsWindow(BaseWindow):
             return
 
         try:
-            # حفظ نوع AI فعلی یا انتخاب اولین AI موجود
             ai_config = load_ai_config()
             ai_types = list(ai_config["ai_types"].keys())
             default_ai_type = ai_types[0] if ai_types else "none"
             current_player_1_ai_type = self.temp_settings.player_1_ai_type if self.temp_settings.player_1_ai_type in ai_types else "none"
             current_player_2_ai_type = self.temp_settings.player_2_ai_type if self.temp_settings.player_2_ai_type in ai_types else default_ai_type
 
-            # بازنشانی temp_settings به مقادیر پیش‌فرض
             self.temp_settings = type(self.temp_settings)()
             self.temp_settings.language = "en"
-            self.temp_settings.game_mode = "human_vs_ai"  # برای فعال کردن AI
+            self.temp_settings.game_mode = "human_vs_ai"
             self.temp_settings.ai_vs_ai_mode = "only_once"
             self.temp_settings.repeat_hands = 10
             self.temp_settings.player_starts = True
@@ -1022,20 +969,20 @@ class SettingsWindow(BaseWindow):
             self.temp_settings.player_2_name = "AI Player"
             self.temp_settings.al1_name = "AI 1"
             self.temp_settings.al2_name = "AI 2"
-            self.temp_settings.player_1_color = (255, 0, 0)  # قرمز
-            self.temp_settings.player_2_color = (0, 0, 255)  # آبی
-            self.temp_settings.board_color_1 = (255, 255, 255)  # سفید
-            self.temp_settings.board_color_2 = (139, 69, 19)  # قهوه‌ای
+            self.temp_settings.player_1_color = (255, 0, 0)
+            self.temp_settings.player_2_color = (0, 0, 255)
+            self.temp_settings.board_color_1 = (255, 255, 255)
+            self.temp_settings.board_color_2 = (139, 69, 19)
             self.temp_settings.player_1_ai_type = current_player_1_ai_type
             self.temp_settings.player_2_ai_type = current_player_2_ai_type
             self.temp_settings.player_1_image = ""
             self.temp_settings.player_2_image = ""
             self.temp_settings.al1_image = ""
             self.temp_settings.al2_image = ""
-            self.temp_settings.player_1_piece_image = "assets/pieces/red_piece.png"
-            self.temp_settings.player_1_king_image = "assets/pieces/red_king.png"
-            self.temp_settings.player_2_piece_image = "assets/pieces/blue_piece.png"
-            self.temp_settings.player_2_king_image = "assets/pieces/blue_king.png"
+            self.temp_settings.player_1_piece_image = str(Path(self.config["assets_dir"]) / "pieces" / "red_piece.png")
+            self.temp_settings.player_1_king_image = str(Path(self.config["assets_dir"]) / "pieces" / "red_king.png")
+            self.temp_settings.player_2_piece_image = str(Path(self.config["assets_dir"]) / "pieces" / "blue_piece.png")
+            self.temp_settings.player_2_king_image = str(Path(self.config["assets_dir"]) / "pieces" / "blue_king.png")
             self.temp_settings.ai_configs = {
                 "player_1": {
                     "ai_type": current_player_1_ai_type,
@@ -1051,7 +998,6 @@ class SettingsWindow(BaseWindow):
                 }
             }
 
-            # به‌روزرسانی ویجت‌های UI (با چک وجود متغیرها)
             ui_vars = {
                 "language_var": self.temp_settings.language,
                 "game_mode_var": self.temp_settings.game_mode,
@@ -1080,7 +1026,6 @@ class SettingsWindow(BaseWindow):
                 else:
                     print(f"Warning: {var_name} not found in SettingsWindow")
 
-            # به‌روزرسانی entries
             for key in ["player_1_image", "player_2_image", "al1_image", "al2_image",
                         "player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
                 if key in self.entries:
@@ -1088,11 +1033,8 @@ class SettingsWindow(BaseWindow):
                 else:
                     print(f"Warning: Entry {key} not found in self.entries")
 
-            # به‌روزرسانی UI (مثل فعال/غیرفعال کردن گزینه‌ها)
             self.update_ui()
             print("Temp settings after reset:", vars(self.temp_settings))
-
-            # ذخیره تنظیمات بازنشانی‌شده
             self.save()
             print("Reset completed, settings saved")
             messagebox.showinfo(
@@ -1101,13 +1043,9 @@ class SettingsWindow(BaseWindow):
             )
         except Exception as e:
             print(f"Error in reset: {str(e)}")
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                f"خطا در بازنشانی تنظیمات: {str(e)}"
-            )
+            self.log_error(f"خطا در بازنشانی تنظیمات: {str(e)}")
 
     def update_ui(self):
-        """به‌روزرسانی رابط کاربری با تنظیمات موقت"""
         if not self.window or not self.is_open:
             return
         self.lang_var.set(self.temp_settings.language)
@@ -1161,201 +1099,148 @@ class SettingsWindow(BaseWindow):
         self.update_ai_dropdowns()
 
 
-
-class ALProgressWindow(BaseWindow):
-    def create_widgets(self):
-        self.create_window(LANGUAGES[self.settings.language]["al_progress"],
-                         self.config.get("progress_window_width", 600),
-                         self.config.get("progress_window_height", 400))
-
-        table_frame = ttk.Frame(self.window)
-        table_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        headers = ["Parameter", "Shape", "Num Elements"]
-        if self.settings.language == "fa":
-            headers = ["پارامتر", "شکل", "تعداد عناصر"]
-
-        for col, header in enumerate(headers):
-            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5, pady=2, sticky="w")
-
-        model_data = {}
-        total_params = 0
-        pth_file = "1/al_model.pth"
-
-        if os.path.exists(pth_file):
-            try:
-                model_data = torch.load(pth_file, map_location=torch.device('cpu'))
-                for key, tensor in model_data.items():
-                    total_params += tensor.numel()
-            except Exception as e:
-                model_data = {"Error": f"Failed to load model: {e}"}
-        else:
-            model_data = {"Error": "Model file not found."}
-
-        if "Error" not in model_data:
-            for row, (key, tensor) in enumerate(model_data.items(), 1):
-                ttk.Label(table_frame, text=key).grid(row=row, column=0, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row, column=1, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row, column=2, sticky="w", padx=5, pady=2)
-
-            ttk.Label(table_frame, text="Total Parameters" if self.settings.language == "en" else "مجموع پارامترها",
-                     font=("Arial", 10, "bold")).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(table_frame, text=str(total_params)).grid(row=row + 1, column=2, sticky="w", padx=5, pady=2)
-        else:
-            ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
-
-        ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
-                   command=self.close, style="Custom.TButton").pack(pady=10)
-
-
-class AZProgressWindow(BaseWindow):
-    def create_widgets(self):
-        self.create_window(LANGUAGES[self.settings.language]["az_progress"],
-                         self.config.get("progress_window_width", 600),
-                         self.config.get("progress_window_height", 400))
-
-        table_frame = ttk.Frame(self.window)
-        table_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        headers = ["Parameter", "Shape", "Num Elements"]
-        if self.settings.language == "fa":
-            headers = ["پارامتر", "شکل", "تعداد عناصر"]
-
-        for col, header in enumerate(headers):
-            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5, pady=2, sticky="w")
-
-        model_data = {}
-        total_params = 0
-        pth_file = "1/az_model.pth"
-
-        if os.path.exists(pth_file):
-            try:
-                model_data = torch.load(pth_file, map_location=torch.device('cpu'))
-                for key, tensor in model_data.items():
-                    total_params += tensor.numel()
-            except Exception as e:
-                model_data = {"Error": f"Failed to load model: {e}"}
-        else:
-            model_data = {"Error": "Model file not found."}
-
-        if "Error" not in model_data:
-            for row, (key, tensor) in enumerate(model_data.items(), 1):
-                ttk.Label(table_frame, text=key).grid(row=row, column=0, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row, column=1, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row, column=2, sticky="w", padx=5, pady=2)
-
-            ttk.Label(table_frame, text="Total Parameters" if self.settings.language == "en" else "مجموع پارامترها",
-                     font=("Arial", 10, "bold")).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(table_frame, text=str(total_params)).grid(row=row + 1, column=2, sticky="w", padx=5, pady=2)
-        else:
-            ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
-
-        ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
-                   command=self.close, style="Custom.TButton").pack(pady=10)
-
-
 class AIProgressWindow(BaseWindow):
-    def __init__(self, interface, ai_id, root=None):
+    def __init__(self, interface, root=None):
         super().__init__(interface, root)
-        self.ai_id = ai_id
-        self.ai_config = load_ai_config()
-        self.ai_code = self.ai_config["ai_configs"][
-            "player_1" if ai_id == "ai_1" else "player_2"
-        ].get("ai_code", "default")
+        self.pth_dir = self.pth_dir
         self.create_widgets()
 
     def create_widgets(self):
         self.create_window(
-            f"{LANGUAGES[self.settings.language]['ai_progress']} ({self.ai_id})",
-            self.config.get("progress_window_width", 600),
-            self.config.get("progress_window_height", 400),
+            LANGUAGES[self.settings.language]["ai_progress"],
+            self.config.get("progress_window_width", 800),
+            self.config.get("progress_window_height", 600)
         )
 
-        table_frame = ttk.Frame(self.window)
-        table_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        notebook = ttk.Notebook(self.window)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        headers = ["Parameter", "Shape", "Num Elements"]
-        if self.settings.language == "fa":
-            headers = ["پارامتر", "شکل", "تعداد عناصر"]
+        model_files = list(self.pth_dir.glob("*.pth"))
+        if not model_files:
+            ttk.Label(self.window, text=LANGUAGES[self.settings.language]["model_not_found"]).pack(pady=20)
+            ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
+                       command=self.close, style="Custom.TButton").pack(pady=10)
+            return
+
+        for pth_file in model_files:
+            model_id = pth_file.stem
+            self.setup_model_tab(notebook, pth_file, model_id)
+
+        ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
+                   command=self.close, style="Custom.TButton").pack(pady=10)
+
+    def setup_model_tab(self, notebook, pth_file, model_id):
+        tab_frame = ttk.Frame(notebook)
+        notebook.add(tab_frame, text=model_id)
+
+        content_frame = ttk.Frame(tab_frame)
+        content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        model_frame = ttk.LabelFrame(content_frame, text=LANGUAGES[self.settings.language]["model_parameters"],
+                                     padding=10)
+        model_frame.pack(fill="x", pady=5)
+
+        headers = [
+            LANGUAGES[self.settings.language]["parameter"],
+            LANGUAGES[self.settings.language]["shape"],
+            LANGUAGES[self.settings.language]["num_elements"]
+        ]
+
+        table_frame = ttk.Frame(model_frame)
+        table_frame.pack(fill="both", expand=True)
 
         for col, header in enumerate(headers):
-            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(
-                row=0, column=col, padx=5, pady=2, sticky="w"
-            )
+            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5, pady=2,
+                                                                                 sticky="w")
 
         model_data = {}
         total_params = 0
-        pth_file = project_dir / "pth" / f"{self.ai_code}_{self.ai_id}.pth"
-
-        if os.path.exists(pth_file):
-            try:
-                model_data = torch.load(pth_file, map_location=torch.device("cpu"))
-                for key, tensor in model_data.items():
-                    total_params += tensor.numel()
-            except Exception as e:
-                model_data = {"Error": f"Failed to load model: {e}"}
-        else:
-            model_data = {"Error": f"Model file {pth_file} not found."}
+        try:
+            model_data = torch.load(pth_file, map_location=torch.device("cpu"))
+            for key, tensor in model_data.items():
+                total_params += tensor.numel()
+        except Exception as e:
+            model_data = {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
+            logging.error(f"Failed to load model {pth_file}: {str(e)}")
 
         if "Error" not in model_data:
             for row, (key, tensor) in enumerate(model_data.items(), 1):
-                ttk.Label(table_frame, text=key).grid(
-                    row=row, column=0, sticky="w", padx=5, pady=2
-                )
-                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(
-                    row=row, column=1, sticky="w", padx=5, pady=2
-                )
-                ttk.Label(table_frame, text=str(tensor.numel())).grid(
-                    row=row, column=2, sticky="w", padx=5, pady=2
-                )
+                ttk.Label(table_frame, text=key).grid(row=row, column=0, sticky="w", padx=5, pady=2)
+                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row, column=1, sticky="w", padx=5, pady=2)
+                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row, column=2, sticky="w", padx=5, pady=2)
 
-            ttk.Label(
-                table_frame,
-                text="Total Parameters"
-                if self.settings.language == "en"
-                else "مجموع پارامترها",
-                font=("Arial", 10, "bold"),
-            ).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(table_frame, text=str(total_params)).grid(
-                row=row + 1, column=2, sticky="w", padx=5, pady=2
-            )
+            ttk.Label(table_frame, text=LANGUAGES[self.settings.language]["total_parameters"],
+                      font=("Arial", 10, "bold")).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(table_frame, text=str(total_params)).grid(row=row + 1, column=2, sticky="w", padx=5, pady=2)
         else:
-            ttk.Label(table_frame, text=model_data["Error"]).grid(
-                row=1, column=0, columnspan=3, padx=5, pady=10
-            )
+            ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
 
-        ttk.Button(
-            self.window,
-            text=LANGUAGES[self.settings.language]["close"],
-            command=self.close,
-            style="Custom.TButton",
-        ).pack(pady=10)
+        progress_frame = ttk.LabelFrame(content_frame, text=LANGUAGES[self.settings.language]["training_progress"],
+                                        padding=10)
+        progress_frame.pack(fill="x", pady=5)
+
+        progress_file = self.pth_dir / f"progress_tracker_{model_id}.json"
+        progress_data = self.load_progress_data(progress_file)
+
+        if "Error" not in progress_data:
+            progress_table = ttk.Frame(progress_frame)
+            progress_table.pack(fill="both", expand=True)
+
+            progress_headers = ["Epoch", "Loss", "Accuracy", "Training Time (s)"]
+            if self.settings.language == "fa":
+                progress_headers = ["دوره", "خطا", "دقت", "زمان آموزش (ثانیه)"]
+
+            for col, header in enumerate(progress_headers):
+                ttk.Label(progress_table, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5,
+                                                                                        pady=2, sticky="w")
+
+            for row, epoch_data in enumerate(progress_data.get("epochs", []), 1):
+                ttk.Label(progress_table, text=str(epoch_data.get("epoch", "-"))).grid(row=row, column=0, sticky="w",
+                                                                                       padx=5, pady=2)
+                ttk.Label(progress_table, text=str(epoch_data.get("loss", "-"))).grid(row=row, column=1, sticky="w",
+                                                                                      padx=5, pady=2)
+                ttk.Label(progress_table, text=str(epoch_data.get("accuracy", "-"))).grid(row=row, column=2, sticky="w",
+                                                                                          padx=5, pady=2)
+                ttk.Label(progress_table, text=str(epoch_data.get("training_time", "-"))).grid(row=row, column=3,
+                                                                                               sticky="w", padx=5,
+                                                                                               pady=2)
+        else:
+            ttk.Label(progress_frame, text=progress_data["Error"]).grid(row=1, column=0, padx=5, pady=10)
+
+    def load_progress_data(self, progress_file):
+        try:
+            if progress_file.exists():
+                with open(progress_file, "r") as f:
+                    data = json.load(f)
+                return data
+            else:
+                return {"Error": LANGUAGES[self.settings.language]["model_not_found"]}
+        except Exception as e:
+            logging.error(f"Failed to load progress file {progress_file}: {str(e)}")
+            return {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
 
 
 class HelpWindow(BaseWindow):
-
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["help"],
-                         self.config.get("help_window_width", 300),
-                         self.config.get("help_window_height", 200))
+                           self.config.get("help_window_width", 300),
+                           self.config.get("help_window_height", 200))
         ttk.Label(self.window, text="COMING SOON!", font=("Arial", 14)).pack(pady=50)
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
 
 class AboutWindow(BaseWindow):
-
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["about_me"],
-                         self.config.get("about_window_width", 300),
-                         self.config.get("about_window_height", 200))
+                           self.config.get("about_window_width", 300),
+                           self.config.get("about_window_height", 200))
         ttk.Label(self.window, text="COMING SOON!", font=("Arial", 14)).pack(pady=50)
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
 
 class AdvancedConfigWindow(tk.Toplevel):
-
     def __init__(self, parent, settings, temp_settings, language):
         super().__init__(parent)
         self.parent = parent
@@ -1364,7 +1249,6 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.language = language
         self.title(LANGUAGES[language]["advanced_settings_title"])
 
-        # تنظیم اندازه و موقعیت پنجره مشابه SettingsWindow
         config = load_config()
         width = config.get("settings_window_width", 500)
         height = config.get("settings_window_height", 750)
@@ -1379,11 +1263,9 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.param_vars = {}
         self.current_ai_type = self.ai_types[0] if self.ai_types else None
 
-        # فریم اصلی برای محتوا
         main_frame = ttk.Frame(self)
         main_frame.pack(fill="both", expand=True)
 
-        # کانتینر اسکرول‌پذیر
         self.canvas = tk.Canvas(main_frame)
         self.scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
@@ -1398,7 +1280,6 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
-        # نوت‌بوک برای تب‌های AI
         notebook = ttk.Notebook(self.scrollable_frame)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -1407,7 +1288,6 @@ class AdvancedConfigWindow(tk.Toplevel):
 
         notebook.bind("<<NotebookTabChanged>>", self.update_current_ai)
 
-        # فریم ثابت برای دکمه‌های ذخیره و ریست
         button_frame = ttk.Frame(self)
         button_frame.pack(side="bottom", fill="x", pady=10)
 
@@ -1466,7 +1346,7 @@ class AdvancedConfigWindow(tk.Toplevel):
 
             row = 0
             for param_name, default_value in params.items():
-                if param_name == "fc_layer_sizes":  # فعلاً نادیده گرفته می‌شود
+                if param_name == "fc_layer_sizes":
                     continue
                 var_type = tk.StringVar if param_name == "cache_file" else tk.DoubleVar if isinstance(default_value,
                                                                                                       float) else tk.IntVar
@@ -1503,7 +1383,6 @@ class AdvancedConfigWindow(tk.Toplevel):
             )
             return
 
-        # نمایش پاپ‌آپ تأیید
         if not messagebox.askyesno(
                 LANGUAGES[self.language]["warning"],
                 f"{LANGUAGES[self.language]['confirm_reset']} {LANGUAGES[self.language][player]}",
@@ -1512,7 +1391,6 @@ class AdvancedConfigWindow(tk.Toplevel):
             print(f"Reset for {player} cancelled by user")
             return
 
-        # استفاده مستقیم از DEFAULT_AI_PARAMS برای بازنشانی
         player_params = DEFAULT_AI_PARAMS.copy()
         ai_code = self.ai_config["ai_types"][ai_type]["code"]
         ai_specific_config = load_ai_specific_config(ai_code)
@@ -1541,7 +1419,6 @@ class AdvancedConfigWindow(tk.Toplevel):
                         player_params[param_category][param_name] = default_value
                     print(f"Set {param_category}.{param_name} to {param_var.get()}")
 
-        # به‌روزرسانی temp_settings و ذخیره در فایل کانفیگ
         self.temp_settings.ai_configs[player]["params"] = player_params
         ai_specific_config[player] = player_params
         save_ai_specific_config(ai_code, ai_specific_config)
@@ -1564,83 +1441,53 @@ class AdvancedConfigWindow(tk.Toplevel):
                     for param_category, params in DEFAULT_AI_PARAMS.items():
                         player_params[param_category] = {}
                         for param_name, default_value in params.items():
-                            if param_name == "fc_layer_sizes":
-                                player_params[param_category][param_name] = default_value
-                                continue
                             param_var = self.param_vars[ai_type][player].get((param_category, param_name))
                             if param_var:
-                                value = param_var.get()
-                                if param_name == "cache_file":
-                                    value = str(value)
-                                elif param_name == "cache_save_interval":
-                                    value = int(value)
-                                    if value <= 0:
-                                        raise ValueError(f"{param_name} باید مثبت باشد")
-                                elif param_category == "training_params":
-                                    if param_name in ["learning_rate", "gamma", "epsilon_start", "epsilon_end",
-                                                      "epsilon_decay"]:
-                                        if not 0 <= value <= 1:
-                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
-                                    elif param_name in ["memory_size", "batch_size", "update_target_every"]:
-                                        if value <= 0:
-                                            raise ValueError(f"{param_name} باید مثبت باشد")
-                                    elif param_name == "reward_threshold":
-                                        if not -1 <= value <= 1:
-                                            raise ValueError(f"{param_name} باید بین -1 و 1 باشد")
-                                elif param_category == "reward_weights":
-                                    if param_name in ["piece_difference", "king_bonus", "capture_bonus",
-                                                      "multi_jump_bonus", "king_capture_bonus", "mobility_bonus"]:
-                                        if value < 0:
-                                            raise ValueError(f"{param_name} باید غیرمنفی باشد")
-                                    elif param_name == "position_bonus":
-                                        if not 0 <= value <= 1:
-                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
-                                    elif param_name == "safety_penalty":
-                                        if not -1 <= value <= 0:
-                                            raise ValueError(f"{param_name} باید بین -1 و 0 باشد")
-                                elif param_category == "mcts_params":
-                                    if param_name in ["c_puct", "num_simulations", "max_cache_size", "num_processes"]:
-                                        if value <= 0:
-                                            raise ValueError(f"{param_name} باید مثبت باشد")
-                                elif param_category == "network_params":
-                                    if param_name in ["input_channels", "num_filters", "num_blocks", "board_size",
-                                                      "num_actions"]:
-                                        if value <= 0:
-                                            raise ValueError(f"{param_name} باید مثبت باشد")
-                                    elif param_name == "dropout_rate":
-                                        if not 0 <= value <= 1:
-                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
-                                elif param_category == "advanced_nn_params":
-                                    if param_name in ["input_channels", "conv1_filters", "conv1_kernel_size",
-                                                      "conv1_padding",
-                                                      "residual_block1_filters", "residual_block2_filters",
-                                                      "conv2_filters",
-                                                      "attention_embed_dim", "attention_num_heads"]:
-                                        if value <= 0:
-                                            raise ValueError(f"{param_name} باید مثبت باشد")
-                                    elif param_name == "dropout_rate":
-                                        if not 0 <= value <= 1:
-                                            raise ValueError(f"{param_name} باید بین 0 و 1 باشد")
-                                elif param_category == "end_game_rewards":
-                                    if param_name in ["win_no_timeout", "win_timeout", "draw", "loss"]:
-                                        if not -1000 <= value <= 1000:
-                                            raise ValueError(f"{param_name} باید بین -1000 و 1000 باشد")
-                                player_params[param_category][param_name] = value
-                    ai_specific_config[player] = player_params
-                    # به‌روزرسانی temp_settings
+                                try:
+                                    if param_name == "cache_file":
+                                        value = param_var.get()
+                                    elif param_name == "cache_save_interval":
+                                        value = int(param_var.get())
+                                    elif isinstance(default_value, float):
+                                        value = float(param_var.get())
+                                    else:
+                                        value = int(param_var.get())
+                                    player_params[param_category][param_name] = value
+                                except (ValueError, TypeError) as e:
+                                    player_params[param_category][param_name] = default_value
+                                    logging.error(
+                                        f"Invalid value for {param_category}.{param_name} in {ai_type} for {player}: {str(e)}")
+                            else:
+                                player_params[param_category][param_name] = default_value
+
+                    # به‌روزرسانی تنظیمات موقت
                     self.temp_settings.ai_configs[player]["params"] = player_params
-                    print(f"Saved params for {player} in temp_settings.ai_configs")
-                save_ai_specific_config(ai_code, ai_specific_config)
+                    # ذخیره در فایل تنظیمات خاص AI
+                    ai_specific_config[player] = player_params
+                    save_ai_specific_config(ai_code, ai_specific_config)
+
+            # ذخیره تنظیمات کلی AI
+            ai_config = load_ai_config()
+            ai_config["ai_configs"]["player_1"].update(self.temp_settings.ai_configs["player_1"])
+            ai_config["ai_configs"]["player_2"].update(self.temp_settings.ai_configs["player_2"])
+            save_ai_config(ai_config)
 
             messagebox.showinfo(
                 LANGUAGES[self.language]["info"],
-                LANGUAGES[self.language]["settings_saved"]
+                LANGUAGES[self.settings.language]["settings_saved"],
+                parent=self
             )
             self.destroy()
+
         except Exception as e:
+            logging.error(f"Error saving advanced settings: {str(e)}")
             messagebox.showerror(
                 LANGUAGES[self.language]["error"],
-                f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}"
+                LANGUAGES[self.language]["error_saving_settings"].format(error=str(e)),
+                parent=self
             )
+
+
+
 
 
