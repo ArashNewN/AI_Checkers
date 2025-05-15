@@ -1,24 +1,94 @@
 import pygame
 import numpy as np
-from .board import Board
 import importlib
+from .board import Board
 from .timer import TimerManager
 from .rewards import RewardCalculator
 from .config import load_config, load_stats, save_stats, load_ai_config
-from .constants import BOARD_WIDTH, MENU_HEIGHT, BORDER_THICKNESS, SQUARE_SIZE, RED
+from copy import deepcopy
+
+
+class MoveHistory:
+    """مدیریت تاریخچه حرکات و پشته redo در بازی."""
+
+    def __init__(self):
+        self.move_history = []
+        self.redo_stack = []
+
+    def save_state(self, board, turn, valid_moves, player_1_left, player_2_left):
+        """
+        ذخیره وضعیت فعلی بازی در تاریخچه.
+
+        Args:
+            board (numpy.ndarray): آرایه تخته بازی
+            turn (bool): نوبت فعلی (False برای بازیکن 1، True برای بازیکن 2)
+            valid_moves (dict): حرکت‌های معتبر
+            player_1_left (int): تعداد مهره‌های باقی‌مانده بازیکن 1
+            player_2_left (int): تعداد مهره‌های باقی‌مانده بازیکن 2
+        """
+        state = {
+            'board': deepcopy(board),
+            'turn': turn,
+            'valid_moves': deepcopy(valid_moves),
+            'player_1_left': player_1_left,
+            'player_2_left': player_2_left
+        }
+        self.move_history.append(state)
+        self.redo_stack.clear()
+
+    def clear_redo_stack(self):
+        """پاک کردن پشته redo."""
+        self.redo_stack.clear()
+
+    def save_game_state(self, game):
+        """
+        ذخیره وضعیت کامل بازی شامل تایمر.
+
+        Args:
+            game (Game): نمونه کلاس Game
+        """
+        state = {
+            'board': deepcopy(game.board.board),
+            'turn': game.turn,
+            'player_1_left': game.board.player_1_left,
+            'player_2_left': game.board.player_2_left,
+            'timer': {
+                'player_1_time': game.timer.get_current_time(False),
+                'player_2_time': game.timer.get_current_time(True)
+            }
+        }
+        self.move_history.append(state)
+        self.redo_stack.clear()
 
 
 class Game:
+    """کلاس اصلی بازی شطرنج چینی (Checkers) با پشتیبانی از حالت‌های مختلف بازی."""
+
     def __init__(self, settings, interface=None):
-        #print("Game.__init__ called")
+        """مقداردهی اولیه بازی.
+
+        Args:
+            settings: تنظیمات بازی (مثل game_mode و player_starts)
+            interface: رابط کاربری (اختیاری)
+        """
         config = load_config()
-        self.board_size = config.get("network_params", {}).get("board_size", 8)
+        self.board_size = config.get("board_size", 8)
         self.max_no_capture_moves = config.get("max_no_capture_moves", 40)
+        self.max_uniform_moves = config.get("max_uniform_moves", 5)
+        self.max_total_moves = config.get("max_total_moves", 40)
+        self.window_width = config.get("window_width", 940)
+        self.window_height = config.get("window_height", 720)
+        self.board_width = config.get("board_width", 640)
+        self.menu_height = config.get("menu_height", 80)
+        self.border_thickness = config.get("border_thickness", 10)
+        self.square_size = config.get("square_size", 80)
+        self.red = config.get("colors", {}).get("red", [255, 0, 0])
+        self.hint_enabled_p1 = config.get("hint_enabled_p1", True)
+        self.hint_enabled_p2 = config.get("hint_enabled_p2", True)
 
         self.settings = settings
         self.interface = interface
-
-        self.screen = pygame.display.set_mode((config.get("window_width", 940), config.get("window_height", 727)))
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption('Checkers: Player 1 vs Player 2')
 
         self.font = pygame.font.SysFont('Vazir' if 'Vazir' in pygame.font.get_fonts() else 'Arial', 24)
@@ -29,38 +99,48 @@ class Game:
         self.player_2_wins = stats["player_2_wins"]
 
         self.ai_players = {}
-        ai_id = None
-        if self.settings.game_mode == "human_vs_ai":
-            ai_id = "ai_2"  # فرض: بازیکن دوم هوش مصنوعی است
-        elif self.settings.game_mode == "ai_vs_ai":
-            ai_id = "ai_1"  # پیش‌فرض به بازیکن اول برای RewardCalculator
-        elif self.settings.player_1_ai_type != "none":
-            ai_id = "ai_1"
-        elif self.settings.player_2_ai_type != "none":
-            ai_id = "ai_2"
-
-        if self.settings.game_mode in ["human_vs_ai", "ai_vs_ai"] or \
-                self.settings.player_1_ai_type != "none" or \
-                self.settings.player_2_ai_type != "none":
+        if (self.settings.game_mode in ["human_vs_ai", "ai_vs_ai"] or
+                self.settings.player_1_ai_type != "none" or
+                self.settings.player_2_ai_type != "none"):
             self.reward_calculator = RewardCalculator(self)
         else:
             self.reward_calculator = None
         self.update_ai_players()
 
         self.timer = TimerManager(self.settings.use_timer, self.settings.game_time)
-
+        self.history = MoveHistory()
+        self.consecutive_uniform_moves = {1: 0, 2: 0}
+        self.total_moves = {1: 0, 2: 0}
         self.multi_jump_active = False
         self.no_capture_or_king_moves = 0
         self.last_update_time = pygame.time.get_ticks()
+        self.board = None
+        self.selected = None
+        self.turn = False if self.settings.player_starts else True
+        self.valid_moves = {}
+        self.game_over = False
+        self.winner = None
+        self.last_state = None
+        self.last_action = None
+        self.move_log = []
+        self.click_log = []
+        self.game_started = False
+        self.score_updated = False
+        self.repeat_count = 0
+        self.time_up = False
 
         self.init_game()
 
     def update_ai_players(self):
+        """به‌روزرسانی بازیکنان هوش مصنوعی بر اساس تنظیمات."""
         print(f"Updating AI players. Current ai_players: {self.ai_players}")
         config_dict = load_ai_config()
 
         ai_type_to_class = {}
         for ai_info in config_dict.get("available_ais", []):
+            if "module" not in ai_info or "class" not in ai_info:
+                print(f"Error: Missing 'module' or 'class' in ai_info: {ai_info}")
+                continue
             try:
                 module_name = ai_info["module"]
                 class_name = ai_info["class"]
@@ -111,6 +191,16 @@ class Game:
                 print(f"No AI type specified or ai_type is 'none' for {player}")
 
     def _create_ai(self, ai_type, model_name, ai_id):
+        """ایجاد یک نمونه AI با نوع و مدل مشخص.
+
+        Args:
+            ai_type (str): نوع AI
+            model_name (str): نام مدل AI
+            ai_id (str): شناسه AI ('ai_1' یا 'ai_2')
+
+        Returns:
+            object: نمونه AI یا None در صورت خطا
+        """
         print(f"Creating AI: ai_type={ai_type}, model_name={model_name}, ai_id={ai_id}")
         if ai_type == "none":
             return None
@@ -128,6 +218,7 @@ class Game:
             return None
 
     def init_game(self):
+        """مقداردهی اولیه وضعیت بازی."""
         print("init_game called")
         self.board = Board(self.settings)
         self.selected = None
@@ -142,11 +233,14 @@ class Game:
         self.game_started = False
         self.score_updated = False
         self.no_capture_or_king_moves = 0
+        self.consecutive_uniform_moves = {1: 0, 2: 0}
+        self.total_moves = {1: 0, 2: 0}
         self.timer.start_game()
         self.last_update_time = pygame.time.get_ticks()
         self.repeat_count = 0
 
     def start_game(self):
+        """شروع یک بازی جدید."""
         print("start_game called")
         self.game_started = True
         self.game_over = False
@@ -158,11 +252,12 @@ class Game:
         self.timer.start_game()
         self.update_ai_players()
         self.repeat_count = self.settings.repeat_hands if (
-            self.settings.game_mode == "ai_vs_ai" and
-            self.settings.ai_vs_ai_mode == "repeat_game"
+                self.settings.game_mode == "ai_vs_ai" and
+                self.settings.ai_vs_ai_mode == "repeat_game"
         ) else 1
 
     def reset_board(self):
+        """ریست کردن تخته بازی."""
         print("reset_board called")
         self.board = Board(self.settings)
         self.selected = None
@@ -175,11 +270,21 @@ class Game:
         self.no_capture_or_king_moves = 0
         self.score_updated = False
         self.multi_jump_active = False
+        self.consecutive_uniform_moves = {1: 0, 2: 0}
+        self.total_moves = {1: 0, 2: 0}
         self.timer.start_game()
         self.last_update_time = pygame.time.get_ticks()
         self.update_ai_players()
 
     def make_ai_move(self, ai_id=None):
+        """اجرای حرکت توسط AI.
+
+        Args:
+            ai_id (str, optional): شناسه AI ('ai_1' یا 'ai_2'). اگر None باشد، بر اساس نوبت انتخاب می‌شود.
+
+        Returns:
+            bool: True اگر حرکت موفق بود، False در غیر این صورت
+        """
         print(f"[make_ai_move] Called with ai_id: {ai_id}")
         print(f"[make_ai_move] Current ai_players: {self.ai_players}")
         print(
@@ -199,13 +304,10 @@ class Game:
             print(f"[make_ai_move] Board shape: {self.board.board.shape}")
             board_before = self.board.board.copy()
 
-            # محاسبه شماره بازیکن از ai_id
             player_number = 1 if ai_id == "ai_1" else 2
             print(f"[make_ai_move] Player number: {player_number}")
 
-            # گرفتن حرکت‌های معتبر
             if self.multi_jump_active and self.selected:
-                # فقط حرکات پرشی برای مهره انتخاب‌شده
                 valid_moves = self.get_valid_moves(*self.selected)
                 valid_moves = {(self.selected[0], self.selected[1], move[2], move[3]): skipped for move, skipped in
                                valid_moves.items() if skipped}
@@ -224,31 +326,25 @@ class Game:
                 print("[make_ai_move] Warning: AI returned None for move, selecting first valid move")
                 move = list(valid_moves.keys())[0]
 
-            # تجزیه حرکت
             from_row, from_col, to_row, to_col = move
             print(f"[make_ai_move] Attempting move from ({from_row}, {from_col}) to ({to_row}, {to_col})")
 
-            # بررسی اینکه حرکت با self.selected در پرش چندگانه مطابقت دارد
             if self.multi_jump_active and self.selected and (from_row, from_col) != self.selected:
                 print(f"[make_ai_move] Resetting self.selected to ({from_row}, {from_col})")
                 self.selected = (from_row, from_col)
 
-            # ذخیره حالت تخته قبل از حرکت
-            self.interface.move_history.append((
-                self.board.board.copy(),
+            self.history.save_state(
+                self.board.board,
                 self.turn,
-                valid_moves.copy(),
+                valid_moves,
                 self.board.player_1_left,
                 self.board.player_2_left
-            ))
-            self.interface.redo_stack.clear()  # پاک کردن redo_stack
+            )
 
-            # انتخاب مهره
             print(f"[make_ai_move] Selecting piece at ({from_row}, {from_col})")
             success = self.select(from_row, from_col)
             if success:
                 print(f"[make_ai_move] Selection successful, moving to ({to_row}, {to_col})")
-                # انجام حرکت
                 success = self._move(to_row, to_col)
                 if success:
                     board_after = self.board.board.copy()
@@ -256,28 +352,36 @@ class Game:
                     print(f"[make_ai_move] Reward calculated: {reward}")
                     ai.update(((from_row, from_col), (to_row, to_col)), reward, board_before, board_after)
                     print(f"[make_ai_move] AI updated successfully")
-                    # ادامه پرش‌های چندگانه
                     if self.multi_jump_active:
                         print(f"[make_ai_move] More jumps available, continuing for {ai_id}")
                         return self.make_ai_move(ai_id)
                     return True
                 else:
                     print(f"[make_ai_move] Failed to move to ({to_row}, {to_col})")
-                    self.valid_moves = {}  # پاک کردن valid_moves در صورت شکست
+                    self.valid_moves = {}
                     return False
             else:
                 print(f"[make_ai_move] Failed to select piece at ({from_row}, {from_col})")
-                self.valid_moves = {}  # پاک کردن valid_moves در صورت شکست
+                self.valid_moves = {}
                 return False
 
         except Exception as e:
             print(f"[make_ai_move] Error in AI move (AI ID: {ai_id}): {str(e)}")
             import traceback
             traceback.print_exc()
-            self.valid_moves = {}  # پاک کردن valid_moves در صورت خطا
+            self.valid_moves = {}
             return False
 
     def select(self, row, col):
+        """انتخاب یک مهره در موقعیت (row, col).
+
+        Args:
+            row (int): شماره ردیف
+            col (int): شماره ستون
+
+        Returns:
+            bool: True اگر انتخاب موفق بود، False در غیر این صورت
+        """
         print(
             f"[Game.select] Selecting piece at ({row}, {col}), turn: {self.turn}, multi_jump_active: {self.multi_jump_active}")
 
@@ -286,7 +390,6 @@ class Game:
 
         if piece != 0 and ((piece > 0 and not self.turn) or (piece < 0 and self.turn)):
             valid_moves = self.get_valid_moves(row, col)
-            # تبدیل کلیدها به (end_row, end_col)
             self.valid_moves = {(move[2], move[3]): skipped for move, skipped in valid_moves.items()}
             print(f"[Game.select] Valid moves: {self.valid_moves}")
 
@@ -296,30 +399,50 @@ class Game:
         return False
 
     def _move(self, row, col):
-        print(f"[Game._move] Attempting move to ({row}, {col}), selected: {self.selected}")
+        """انجام حرکت از مهره انتخاب‌شده به موقعیت (row, col).
 
+        Args:
+            row (int): شماره ردیف مقصد
+            col (int): شماره ستون مقصد
+
+        Returns:
+            bool: True اگر حرکت موفق بود، False در غیر این صورت
+        """
+        print(f"[Game._move] Attempting move to ({row}, {col}), selected: {self.selected}")
         if self.selected and (row, col) in self.valid_moves:
             start_row, start_col = self.selected
             piece = self.board.board[start_row, start_col]
+            player_number = 2 if piece < 0 else 1
 
-            # جابه‌جایی مهره
             self.board.board[start_row, start_col] = 0
             self.board.board[row, col] = piece
 
-            # حذف مهره‌های پریده‌شده
             skipped = self.valid_moves[(row, col)]
+            is_capture = bool(skipped)
+
             for skip_row, skip_col in skipped:
                 self.board.board[skip_row, skip_col] = 0
 
-            # بررسی تبدیل به شاه
+            is_promotion = False
             if piece == 1 and row == 0 and not self.turn:
                 self.board.board[row, col] = 2
+                is_promotion = True
                 print(f"[Game._move] Promoted to king at ({row}, {col})")
             elif piece == -1 and row == 7 and self.turn:
                 self.board.board[row, col] = -2
+                is_promotion = True
                 print(f"[Game._move] Promoted to king at ({row}, {col})")
 
-            # مدیریت پرش‌های چندگانه
+            self.total_moves[player_number] += 1
+            if not (is_capture or is_promotion):
+                self.consecutive_uniform_moves[player_number] += 1
+            else:
+                self.consecutive_uniform_moves[player_number] = 0
+            if is_capture or is_promotion:
+                self.no_capture_or_king_moves = 0
+            else:
+                self.no_capture_or_king_moves += 1
+
             self.valid_moves = {}
             self.multi_jump_active = False
             if skipped:
@@ -339,7 +462,6 @@ class Game:
                 self.turn = not self.turn
                 print(f"[Game._move] Simple move, turn changed to {self.turn}")
 
-            # به‌روزرسانی تعداد مهره‌ها
             self.board.player_1_left = sum(1 for row in self.board.board.flat if row > 0)
             self.board.player_2_left = sum(1 for row in self.board.board.flat if row < 0)
             print(
@@ -350,12 +472,17 @@ class Game:
         return False
 
     def get_valid_moves(self, row, col):
+        """محاسبه حرکت‌های مجاز برای مهره در موقعیت (row, col).
+
+        Args:
+            row (int): شماره ردیف مهره
+            col (int): شماره ستون مهره
+
+        Returns:
+            dict: دیکشنری حرکت‌های معتبر با کلید (start_row, start_col, end_row, end_col)
+                  و مقدار لیست مهره‌های پریده‌شده
         """
-        محاسبه حرکت‌های مجاز برای مهره در موقعیت (row, col) با رعایت پرش اجباری.
-        اگر هر مهره‌ای از بازیکن فعلی بتواند پرش کند، فقط پرش‌ها برگردانده می‌شوند.
-        خروجی: دیکشنری {(start_row, start_col, end_row, end_col): [(skipped_row, skipped_col), ...]}
-        """
-        # print(f"[Game.get_valid_moves] Getting moves for ({row}, {col})")
+        print(f"[Game.get_valid_moves] Getting moves for ({row}, {col})")
         piece = self.board.board[row, col]
         if piece == 0:
             print(f"[Game.get_valid_moves] No piece at ({row}, {col})")
@@ -365,7 +492,6 @@ class Game:
         player_number = 2 if is_player_2 else 1
         is_king = abs(piece) == 2
 
-        # جمع‌آوری تمام پرش‌های ممکن برای همه مهره‌های بازیکن
         all_jumps = {}
         for r in range(self.board_size):
             for c in range(self.board_size):
@@ -375,12 +501,10 @@ class Game:
                     for (end_row, end_col), skipped in jumps.items():
                         all_jumps[(r, c, end_row, end_col)] = skipped
 
-        # اگر پرشی ممکن باشد، فقط پرش‌ها را برگردان
         if all_jumps:
-            # print(f"[Game.get_valid_moves] Jumps available: {all_jumps}")
+            print(f"[Game.get_valid_moves] Jumps available: {all_jumps}")
             return all_jumps
 
-        # اگر هیچ پرشی ممکن نباشد، حرکت‌های ساده برای مهره در (row, col) بررسی می‌شوند
         moves = {}
         directions = self.get_piece_directions(piece, is_king)
         for dr, dc in directions:
@@ -390,79 +514,71 @@ class Game:
                 if target == 0:
                     moves[(row, col, new_row, new_col)] = []
 
-        # print(f"[Game.get_valid_moves] Moves: {moves}")
+        print(f"[Game.get_valid_moves] Moves: {moves}")
         return moves
 
     def _get_jumps_recursive(self, row, col, piece, player_number, is_king, skipped, visited):
-        """
-        محاسبه بازگشتی تمام پرش‌های ممکن برای مهره در (row, col).
-        ورودی:
-            row, col: موقعیت فعلی مهره
-            piece: نوع مهره (مثبت برای بازیکن 1، منفی برای بازیکن 2)
-            player_number: 1 یا 2
-            is_king: آیا مهره شاه است
-            skipped: لیست مهره‌های پرش‌شده در مسیر فعلی
-            visited: مجموعه موقعیت‌های بازدیدشده برای جلوگیری از حلقه
-        خروجی:
-            دیکشنری پرش‌ها: {(jump_row, jump_col): [(skipped_row, skipped_col), ...]}
+        """محاسبه بازگشتی پرش‌های ممکن برای مهره.
+
+        Args:
+            row (int): شماره ردیف فعلی
+            col (int): شماره ستون فعلی
+            piece (int): نوع مهره
+            player_number (int): شماره بازیکن (1 یا 2)
+            is_king (bool): آیا مهره شاه است
+            skipped (list): لیست مهره‌های پریده‌شده
+            visited (set): مجموعه موقعیت‌های بازدیدشده
+
+        Returns:
+            dict: دیکشنری پرش‌ها با کلید (jump_row, jump_col) و مقدار لیست مهره‌های پریده‌شده
         """
         jumps = {}
         visited.add((row, col))
 
-        # جهت‌های پرش
         directions = self.get_piece_directions(piece, is_king)
 
-        # بررسی پرش‌های ممکن از موقعیت فعلی
         for dr, dc in directions:
             new_row, new_col = row + dr, col + dc
             jump_row, jump_col = new_row + dr, new_col + dc
 
-            # بررسی شرایط پرش
-            if (0 <= new_row < self.board_size and 0 <= new_col < self.board_size and
-                    0 <= jump_row < self.board_size and 0 <= jump_col < self.board_size):
+            if 0 <= new_row < self.board_size and 0 <= new_col < self.board_size and \
+                    0 <= jump_row < self.board_size and 0 <= jump_col < self.board_size:
                 target = self.board.board[new_row, new_col]
                 jump_target = self.board.board[jump_row, jump_col]
-                # پرش معتبر: هدف مهره حریف باشد و مقصد خالی
-                if (target != 0 and ((target < 0) != (piece < 0)) and jump_target == 0):
+                if target != 0 and ((target < 0) != (piece < 0)) and jump_target == 0:
                     new_skipped = skipped + [(new_row, new_col)]
-
-                    # بررسی تبدیل به شاه
                     becomes_king = (not is_king and
                                     ((player_number == 1 and jump_row == 0) or
                                      (player_number == 2 and jump_row == self.board_size - 1)))
-
-                    # ثبت پرش
                     jumps[(jump_row, jump_col)] = new_skipped
-
-                    # اگر به شاه تبدیل نشد، بررسی پرش‌های بعدی
                     if not becomes_king:
-                        # شبیه‌سازی پرش
                         original_piece = self.board.board[row, col]
                         original_target = self.board.board[new_row, new_col]
                         self.board.board[row, col] = 0
                         self.board.board[new_row, new_col] = 0
                         self.board.board[jump_row, jump_col] = piece
-
-                        # بررسی پرش‌های بعدی
                         next_jumps = self._get_jumps_recursive(
                             jump_row, jump_col, piece, player_number, is_king,
                             new_skipped, visited.copy()
                         )
-
-                        # بازگرداندن تخته
                         self.board.board[row, col] = original_piece
                         self.board.board[new_row, new_col] = original_target
                         self.board.board[jump_row, jump_col] = 0
-
-                        # اضافه کردن پرش‌های بعدی
                         for (jr, jc), skip_list in next_jumps.items():
                             jumps[(jr, jc)] = skip_list
 
         return jumps
 
-    def get_piece_directions(self, piece, is_king):
-        """
-        تعیین جهت‌های حرکت برای یک مهره.
+    @staticmethod
+    def get_piece_directions(piece, is_king):
+        """تعیین جهت‌های حرکت برای یک مهره.
+
+        Args:
+            piece (int): نوع مهره (مثبت برای بازیکن 1، منفی برای بازیکن 2)
+            is_king (bool): آیا مهره شاه است
+
+        Returns:
+            list: لیست جهت‌های حرکت (dr, dc)
         """
         is_player_2 = piece < 0
         player_number = 2 if is_player_2 else 1
@@ -474,49 +590,58 @@ class Game:
             return [(-1, -1), (-1, 1), (1, -1), (1, 1)]
         return []
 
+    def update_game(self):
+        """به‌روزرسانی عمومی وضعیت بازی."""
+        self._update_game()
+
     def _update_game(self):
+        """به‌روزرسانی داخلی وضعیت بازی."""
         if self.game_started and not self.game_over:
             self.timer.update(self.turn, self.game_started, self.game_over)
             self.check_winner()
 
     def check_winner(self):
+        """بررسی برنده یا تساوی بازی."""
         if not self.game_started or self.game_over:
             return
 
-        # بررسی حرکت‌های مجاز فقط برای بازیکن فعلی
         current_player_moves = False
-        player_number = 2 if self.turn else 1  # بازیکن 1: turn=False, بازیکن 2: turn=True
+        player_number = 2 if self.turn else 1
 
         for row in range(self.board_size):
             for col in range(self.board_size):
                 piece = self.board.board[row, col]
-                # بررسی فقط برای مهره‌های بازیکن فعلی
                 if piece != 0 and (
                         (piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)
                 ):
                     moves = self.get_valid_moves(row, col)
                     if moves:
                         current_player_moves = True
-                        break  # اگر یک حرکت معتبر پیدا شد، نیازی به ادامه بررسی نیست
+                        break
 
-        # اگر بازیکن فعلی هیچ حرکتی نداشته باشد، حریف برنده است
-        if not current_player_moves:
-            self.winner = not self.turn  # حریف برنده است
+        if self.consecutive_uniform_moves[1] >= self.max_uniform_moves and \
+                self.consecutive_uniform_moves[2] >= self.max_uniform_moves:
+            self.winner = None
+            self.game_over = True
+        elif self.total_moves[1] >= self.max_total_moves and self.total_moves[2] >= self.max_total_moves:
+            self.winner = None
             self.game_over = True
         elif self.no_capture_or_king_moves >= self.max_no_capture_moves:
-            self.winner = None  # مساوی
+            self.winner = None
+            self.game_over = True
+        elif not current_player_moves:
+            self.winner = not self.turn
             self.game_over = True
 
-        # بررسی تایمر
         if self.settings.use_timer:
             player_1_time = self.timer.get_current_time(False)
             player_2_time = self.timer.get_current_time(True)
             if player_1_time <= 0:
-                self.winner = True  # بازیکن 2 برنده است
+                self.winner = True
                 self.game_over = True
                 self.time_up = True
             elif player_2_time <= 0:
-                self.winner = False  # بازیکن 1 برنده است
+                self.winner = False
                 self.game_over = True
                 self.time_up = True
 
@@ -533,31 +658,37 @@ class Game:
             })
 
     def handle_click(self, pos):
+        """مدیریت کلیک کاربر روی تخته.
+
+        Args:
+            pos (tuple): مختصات کلیک (x, y)
+
+        Returns:
+            bool: True اگر حرکت یا انتخاب موفق بود، False در غیر این صورت
+        """
         x, y = pos
         self.click_log.append((x, y))
         if len(self.click_log) > 50:
             self.click_log.pop(0)
 
-        if x < self.interface.BOARD_WIDTH and self.game_started and not self.game_over:
+        if x < self.board_width and self.game_started and not self.game_over:
             is_human_turn = (
                     self.settings.game_mode == "human_vs_human" or
                     (self.settings.game_mode == "human_vs_ai" and not self.turn)
             )
             if is_human_turn:
-                row = (y - self.interface.MENU_HEIGHT - self.interface.BORDER_THICKNESS) // self.interface.SQUARE_SIZE
-                col = (x - self.interface.BORDER_THICKNESS) // self.interface.SQUARE_SIZE
+                row = (y - self.menu_height - self.border_thickness) // self.square_size
+                col = (x - self.border_thickness) // self.square_size
                 if not (0 <= row < self.board_size and 0 <= col < self.board_size):
                     return False
                 if self.selected and (row, col) in self.valid_moves:
-                    # ذخیره حالت تخته قبل از حرکت
-                    self.interface.move_history.append((
-                        self.board.board.copy(),
+                    self.history.save_state(
+                        self.board.board,
                         self.turn,
-                        self.valid_moves.copy(),
+                        self.valid_moves,
                         self.board.player_1_left,
                         self.board.player_2_left
-                    ))
-                    self.interface.redo_stack.clear()  # پاک کردن redo_stack پس از حرکت جدید
+                    )
                     result = self._move(row, col)
                     return result
                 result = self.select(row, col)
@@ -572,58 +703,55 @@ class Game:
         return False
 
     def draw_valid_moves(self):
+        """نمایش حرکت‌های معتبر روی تخته."""
         if self.valid_moves:
             drawn_moves = set()
             for move in self.valid_moves:
                 row, col = move
                 if (row, col) not in drawn_moves:
-                    # رسم دایره برای حرکت معتبر (مثلاً با Pygame)
                     print(f"[Game.draw_valid_moves] Drawing move at ({row}, {col})")
                     drawn_moves.add((row, col))
 
     def change_turn(self):
+        """تغییر نوبت بازیکن."""
         self.selected = None
         self.valid_moves = {}
         self.turn = not self.turn
         print(f"[Game.change_turn] Turn changed to: {self.turn}")
-        self.check_winner()  # بررسی برنده در ابتدای نوبت
+        self.check_winner()
 
     def get_hint(self):
-        if self.game.game_over:
+        """دریافت پیشنهاد حرکت از AI برای بازیکن فعلی.
+
+        Returns:
+            tuple: ((from_row, from_col), (to_row, to_col)) یا None
+        """
+        if self.game_over:
             return None
-        # بررسی فعال بودن Hint برای بازیکن فعلی
-        if (not self.game.turn and not self.hint_enabled_p1) or (self.game.turn and not self.hint_enabled_p2):
+        if not self.turn and not self.hint_enabled_p1 or self.turn and not self.hint_enabled_p2:
             return None
-        ai_id = "ai_1" if not self.game.turn else "ai_2"
+        ai_id = "ai_1" if not self.turn else "ai_2"
         ai = self.ai_players.get(ai_id, None)
         if ai and (self.settings.game_mode in ["human_vs_human", "human_vs_ai"]):
             for row in range(self.board_size):
                 for col in range(self.board_size):
-                    piece = self.game.board.board[row, col]
-                    if piece != 0 and (piece < 0) == self.game.turn:
-                        moves = self.game.get_valid_moves(row, col)
+                    piece = self.board.board[row, col]
+                    if piece != 0 and (piece < 0) == self.turn:
+                        moves = self.get_valid_moves(row, col)
                         if moves:
                             try:
-                                move = ai.suggest_move(self.game, moves) if hasattr(ai, 'suggest_move') else ai.act(
-                                    moves)
+                                move = None
+                                if hasattr(ai, 'suggest_move'):
+                                    move = ai.suggest_move(self, moves)
+                                elif hasattr(ai, 'get_move'):
+                                    move = ai.get_move(self.board.board)
                                 if move:
-                                    return ((row, col), move)
+                                    from_row, from_col, to_row, to_col = move
+                                    return ((row, col), (to_row, to_col))
                             except Exception as e:
-                                print(f"Error in AI hint (AI ID: {ai.ai_id}): {e}")
+                                print(f"Error in AI hint (AI ID: {ai_id}): {e}")
         return None
 
     def save_game_state(self):
-        """ذخیره وضعیت فعلی بازی"""
-        from copy import deepcopy
-        state = {
-            'board': deepcopy(self.game.board.board),
-            'turn': self.game.turn,
-            'player_1_left': self.game.board.player_1_left,
-            'player_2_left': self.game.board.player_2_left,
-            'timer': {
-                'player_1_time': self.game.timer.get_current_time(False),
-                'player_2_time': self.game.timer.get_current_time(True)
-            }
-        }
-        self.move_history.append(state)
-        self.redo_stack.clear()  # با حرکت جدید، Redo غیرفعال می‌شود
+        """ذخیره وضعیت فعلی بازی."""
+        self.history.save_game_state(self)

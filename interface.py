@@ -3,13 +3,12 @@ import os
 import numpy as np
 from .game import Game
 from .windows import SettingsWindow, ALProgressWindow, AZProgressWindow, HelpWindow, AboutWindow
-from .config import load_config
+from .config import load_config, save_stats
 from .constants import LANGUAGES
 from .utils import hex_to_rgb
 import tkinter as tk
 from tkinter import messagebox
 import sys
-import time
 
 
 class Button:
@@ -18,7 +17,7 @@ class Button:
         self.color = color
         self.text = text
         self.font = pygame.font.SysFont('Vazir' if 'Vazir' in pygame.font.get_fonts() else 'Arial', 16)
-        self.enabled = True  # اضافه کردن ویژگی enabled
+        self.enabled = True
 
     def draw(self, screen):
         color = self.color if self.enabled else (self.color[0] // 2, self.color[1] // 2, self.color[2] // 2)
@@ -36,7 +35,6 @@ class GameInterface:
     def __init__(self, settings):
         self.settings = settings
         self.config = load_config()
-        #print("Config Data:", self.config)
         self.WINDOW_WIDTH = self.config['window_width']
         self.WINDOW_HEIGHT = self.config['window_height']
         self.BOARD_WIDTH = self.config['board_width']
@@ -46,6 +44,7 @@ class GameInterface:
         self.SQUARE_SIZE = self.config['square_size']
         self.BUTTON_SPACING_FROM_BOTTOM = self.config['button_spacing_from_bottom']
         self.PLAYER_IMAGE_SIZE = self.config['player_image_size']
+        self.ANIMATION_FRAMES = self.config.get('animation_frames', 20)  # اضافه‌شده برای رفع خطا
         self.BLACK = (0, 0, 0)
         self.LIGHT_GRAY = (200, 200, 200)
         self.SKY_BLUE = (135, 206, 235)
@@ -99,8 +98,6 @@ class GameInterface:
         self.hint_buttons = []
         self.hint_blink_timer = 0
         self.hint_blink_state = True
-        self.move_history = []
-        self.redo_stack = []
         self.undo_buttons = []
 
     def apply_pending_settings(self):
@@ -138,9 +135,9 @@ class GameInterface:
             self.settings.pause_between_hands = self.pending_settings.get("pause_between_hands",
                                                                          self.settings.pause_between_hands)
             self.settings.player_1_ai_type = self.pending_settings.get("player_1_ai_type",
-                                                                       self.settings.player_1_ai_type)
+                                                                      self.settings.player_1_ai_type)
             self.settings.player_2_ai_type = self.pending_settings.get("player_2_ai_type",
-                                                                       self.settings.player_2_ai_type)
+                                                                      self.settings.player_2_ai_type)
             self.pending_settings = None
             self.load_player_images()
             self.load_piece_images()
@@ -157,7 +154,7 @@ class GameInterface:
         player_2_image_path = self.settings.player_2_image if self.settings.game_mode == "human_vs_human" else self.settings.al2_image
 
         for path, attr in [(player_1_image_path, 'player_1_image_surface'),
-                          (player_2_image_path, 'player_2_image_surface')]:
+                           (player_2_image_path, 'player_2_image_surface')]:
             surface = None
             if path and os.path.exists(path) and os.path.getsize(path) > 0:
                 try:
@@ -166,8 +163,8 @@ class GameInterface:
                         image = pygame.transform.scale(image, (self.PLAYER_IMAGE_SIZE, self.PLAYER_IMAGE_SIZE))
                         mask = pygame.Surface((self.PLAYER_IMAGE_SIZE, self.PLAYER_IMAGE_SIZE), pygame.SRCALPHA)
                         pygame.draw.circle(mask, (255, 255, 255, 255),
-                                          (self.PLAYER_IMAGE_SIZE // 2, self.PLAYER_IMAGE_SIZE // 2),
-                                          self.PLAYER_IMAGE_SIZE // 2)
+                                           (self.PLAYER_IMAGE_SIZE // 2, self.PLAYER_IMAGE_SIZE // 2),
+                                           self.PLAYER_IMAGE_SIZE // 2)
                         image.blit(mask, (0, 0), None, pygame.BLEND_RGBA_MULT)
                         surface = image
                     else:
@@ -202,8 +199,8 @@ class GameInterface:
                         image = pygame.transform.scale(image, (piece_size, piece_size))
                         mask = pygame.Surface((piece_size, piece_size), pygame.SRCALPHA)
                         pygame.draw.circle(mask, (255, 255, 255, 255),
-                                          (piece_size // 2, piece_size // 2),
-                                          piece_size // 2)
+                                           (piece_size // 2, piece_size // 2),
+                                           piece_size // 2)
                         image.blit(mask, (0, 0), None, pygame.BLEND_RGBA_MULT)
                         surface = image
                     else:
@@ -231,22 +228,20 @@ class GameInterface:
         base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
 
         if is_removal:
-            # رندر مهره حذف‌شده با رنگ خاکستری تیره و شفافیت کم
             removal_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
             pygame.draw.circle(removal_surface, (50, 50, 50, 100), (radius, radius), radius)
             screen.blit(removal_surface, (draw_x - radius, draw_y - radius))
             return
 
-        # سایه
         shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
         pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
         screen.blit(shadow_surface, (draw_x - radius - 5, draw_y - radius - 5))
 
-        piece_surface = None
-        if is_player_2:
-            piece_surface = self.player_2_king_surface if is_king else self.player_2_piece_surface
-        else:
-            piece_surface = self.player_1_king_surface if is_king else self.player_1_piece_surface
+        piece_surface = (
+            self.player_2_king_surface if is_king else self.player_2_piece_surface
+        ) if is_player_2 else (
+            self.player_1_king_surface if is_king else self.player_1_piece_surface
+        )
 
         if piece_surface is not None:
             screen.blit(piece_surface, (draw_x - radius, draw_y - radius))
@@ -295,7 +290,6 @@ class GameInterface:
                         (radius - radius * 0.3, radius - radius * 0.3)
                     ]
                     pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
-            # درخشش
             shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
             for r in range(radius // 2, 0, -1):
                 alpha = int(100 * (r / (radius / 2)))
@@ -325,17 +319,16 @@ class GameInterface:
         is_king = abs(piece_value) == 2 or is_kinged
         base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
 
-        piece_surface = None
-        if is_player_2:
-            piece_surface = self.player_2_king_surface if is_king else self.player_2_piece_surface
-        else:
-            piece_surface = self.player_1_king_surface if is_king else self.player_1_piece_surface
+        piece_surface = (
+            self.player_2_king_surface if is_king else self.player_2_piece_surface
+        ) if is_player_2 else (
+            self.player_1_king_surface if is_king else self.player_1_piece_surface
+        )
 
         if is_removal:
-            # انیمیشن حذف مهره (محو شدن)
             for frame in range(self.ANIMATION_FRAMES + 1):
                 t = frame / self.ANIMATION_FRAMES
-                alpha = int(255 * (1 - t))  # کاهش شفافیت
+                alpha = int(255 * (1 - t))
                 self.draw_game()
                 removal_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
                 pygame.draw.circle(removal_surface, (*base_color, alpha), (radius, radius), radius)
@@ -344,13 +337,11 @@ class GameInterface:
                 pygame.display.update()
                 pygame.time.wait(20)
         else:
-            # انیمیشن حرکت معمولی یا تبدیل به شاه
             for frame in range(self.ANIMATION_FRAMES + 1):
                 t = frame / self.ANIMATION_FRAMES
                 current_x = start_x + (end_x - start_x) * (1 - np.cos(t * np.pi)) / 2
                 current_y = start_y + (end_y - start_y) * (1 - np.cos(t * np.pi)) / 2
                 self.draw_game()
-                # سایه
                 shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
                 pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
                 self.screen.blit(shadow_surface, (current_x - radius - 5, current_y - radius - 5))
@@ -402,7 +393,6 @@ class GameInterface:
                                 (radius - radius * 0.3, radius - radius * 0.3)
                             ]
                             pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
-                    # درخشش
                     shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
                     for r in range(radius // 2, 0, -1):
                         alpha = int(100 * (r / (radius / 2)))
@@ -421,15 +411,14 @@ class GameInterface:
     def draw_default_image(self, name, x, y):
         surface = pygame.Surface((self.PLAYER_IMAGE_SIZE, self.PLAYER_IMAGE_SIZE), pygame.SRCALPHA)
         pygame.draw.circle(surface, self.LIGHT_GRAY,
-                          (self.PLAYER_IMAGE_SIZE // 2, self.PLAYER_IMAGE_SIZE // 2),
-                          self.PLAYER_IMAGE_SIZE // 2)
+                           (self.PLAYER_IMAGE_SIZE // 2, self.PLAYER_IMAGE_SIZE // 2),
+                           self.PLAYER_IMAGE_SIZE // 2)
         text = self.small_font.render(name[:2], True, self.BLACK)
         text_rect = text.get_rect(center=(self.PLAYER_IMAGE_SIZE // 2, self.PLAYER_IMAGE_SIZE // 2))
         surface.blit(text, text_rect)
         self.screen.blit(surface, (x, y))
 
     def draw_game(self):
-
         self.screen.fill(self.settings.board_color_1)
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, (0, 0, self.WINDOW_WIDTH, self.MENU_HEIGHT))
 
@@ -444,13 +433,12 @@ class GameInterface:
         about_text = self.small_font.render(LANGUAGES[self.settings.language]["about_me"], True, self.BLACK)
         self.screen.blit(about_text, (420, 5))
         pygame.draw.rect(self.screen, self.BLUE,
-                        (0, self.MENU_HEIGHT, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,
-                         self.BOARD_WIDTH + self.BORDER_THICKNESS * 3), self.BORDER_THICKNESS)
+                         (0, self.MENU_HEIGHT, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,
+                          self.BOARD_WIDTH + self.BORDER_THICKNESS * 3), self.BORDER_THICKNESS)
         self.game.board.draw(self.screen, self.settings.board_color_1, self.settings.board_color_2)
         for row in range(8):
             for col in range(8):
                 piece_value = self.game.board.board[row, col]
-
                 if piece_value != 0:
                     self.draw_piece(self.screen, piece_value, row, col)
         self.game.draw_valid_moves()
@@ -489,7 +477,7 @@ class GameInterface:
                 center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y)
             )
             self.screen.blit(result_display, result_display_rect)
-        y +=70
+        y += 70
 
         player_1_name = (
             self.settings.player_1_name
@@ -542,7 +530,6 @@ class GameInterface:
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE,
                 y
             )
-
 
         y += 10
 
@@ -673,7 +660,6 @@ class GameInterface:
 
         y += 60
 
-        # دکمه‌های Undo و Redo
         undo_button_x = (
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
                 (self.PANEL_WIDTH - 2 * self.config['undo_button_width'] - self.config['undo_redo_button_spacing']) // 2
@@ -684,14 +670,14 @@ class GameInterface:
             undo_button_x, undo_button_y, self.config['undo_button_width'], self.config['undo_button_height'],
             LANGUAGES[self.settings.language]["undo"], self.SKY_BLUE
         )
-        undo_button.enabled = len(self.move_history) >= 2
+        undo_button.enabled = len(self.game.history.move_history) >= 2
 
         redo_button = Button(
             undo_button_x + self.config['undo_button_width'] + self.config['undo_redo_button_spacing'], undo_button_y,
             self.config['redo_button_width'], self.config['redo_button_height'],
             LANGUAGES[self.settings.language]["redo"], self.SKY_BLUE
         )
-        redo_button.enabled = len(self.redo_stack) > 0
+        redo_button.enabled = len(self.game.history.redo_stack) > 0
 
         self.undo_buttons = [undo_button, redo_button]
         for button in self.undo_buttons:
@@ -699,7 +685,6 @@ class GameInterface:
 
         y += self.config['undo_button_height'] + self.config['undo_redo_y_offset'] + 10
 
-        # دکمه‌های Hint
         hint_button_x = (
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
                 (self.PANEL_WIDTH - 2 * self.config['hint_button_width'] - self.config['hint_button_spacing']) // 2
@@ -829,28 +814,25 @@ class GameInterface:
                         self.game.player_2_wins = 0
                         save_stats({"player_1_wins": 0, "player_2_wins": 0})
                 elif self.game.game_started:
-                    # مدیریت کلیک روی دکمه‌های Undo و Redo
                     for button in self.undo_buttons:
                         if hasattr(button, 'enabled') and button.enabled and button.is_clicked(pos):
                             if button.text == LANGUAGES[self.settings.language]["undo"]:
                                 self.undo_move()
                             elif button.text == LANGUAGES[self.settings.language]["redo"]:
                                 self.redo_move()
-                    # مدیریت کلیک روی دکمه‌های Hint
                     for button in self.hint_buttons:
                         if hasattr(button, 'enabled') and button.enabled and button.is_clicked(pos):
                             if button == self.hint_buttons[0]:
                                 self.toggle_hint_p1()
                             elif button == self.hint_buttons[1]:
                                 self.toggle_hint_p2()
-                    # مدیریت کلیک روی تخته
                     print("Handling board click")
                     self.game.handle_click(pos)
         return True
 
-    def update(self, ai_id=None):
+    def update(self):
         current_time = pygame.time.get_ticks()
-        self.game._update_game()
+        self.game.update_game()
         if self.game.game_started and not self.game.game_over:
             if self.settings.game_mode == "ai_vs_ai":
                 if self.player_1_move_ready and not self.game.turn:
@@ -858,7 +840,7 @@ class GameInterface:
                     if "ai_1" in self.game.ai_players:
                         self.player_1_move_ready = False
                         self._move_start_time = current_time
-                        success = self.game.make_ai_move("ai_1")  # مشخصاً ai_1 برای player 1
+                        success = self.game.make_ai_move("ai_1")
                         if not success:
                             print(f"[Interface.update] AI move failed for ai_1, skipping")
                             return
@@ -870,7 +852,7 @@ class GameInterface:
                     if "ai_2" in self.game.ai_players:
                         self.player_2_move_ready = False
                         self._move_start_time = current_time
-                        success = self.game.make_ai_move("ai_2")  # مشخصاً ai_2 برای player 2
+                        success = self.game.make_ai_move("ai_2")
                         if not success:
                             print(f"[Interface.update] AI move failed for ai_2, skipping")
                             return
@@ -930,36 +912,12 @@ class GameInterface:
             pass
 
     def undo_move(self):
-        if not self.move_history:
-            print("[undo_move] No moves to undo")
-            return
-
-        # بازگرداندن یک حرکت
-        board_state, turn, valid_moves, player_1_left, player_2_left = self.move_history.pop()
-        self.game.board.board = board_state.copy()
-        self.game.turn = turn
-        self.game.board.valid_moves = valid_moves
-        self.game.board.player_1_left = player_1_left
-        self.game.board.player_2_left = player_2_left
-        self.redo_stack.append((board_state.copy(), turn, valid_moves, player_1_left, player_2_left))
+        self.game.history.undo(self.game)
         self.game.draw_valid_moves()
-        print("[undo_move] Move undone")
 
     def redo_move(self):
-        if not self.redo_stack:
-            print("[redo_move] No moves to redo")
-            return
-
-        # اعمال یک حرکت
-        board_state, turn, valid_moves, player_1_left, player_2_left = self.redo_stack.pop()
-        self.move_history.append((board_state.copy(), turn, valid_moves, player_1_left, player_2_left))
-        self.game.board.board = board_state.copy()
-        self.game.turn = turn
-        self.game.board.valid_moves = valid_moves
-        self.game.board.player_1_left = player_1_left
-        self.game.board.player_2_left = player_2_left
+        self.game.history.redo(self.game)
         self.game.draw_valid_moves()
-        print("[redo_move] Move redone")
 
     def toggle_hint_p1(self):
         self.hint_enabled_p1 = not self.hint_enabled_p1
@@ -973,15 +931,13 @@ class GameInterface:
         if not self.game.game_started or self.game.game_over:
             return None
 
-        # محاسبه حرکات معتبر برای نوبت فعلی
         valid_moves = {}
         board_size = self.game.board_size
-        player_number = 2 if self.game.turn else 1  # False -> بازیکن 1، True -> بازیکن 2
+        player_number = 2 if self.game.turn else 1
 
         for row in range(board_size):
             for col in range(board_size):
                 piece = self.game.board.board[row, col]
-                # بررسی اینکه مهره متعلق به بازیکن فعلی است
                 if piece != 0 and (
                         (piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)
                 ):
@@ -993,7 +949,6 @@ class GameInterface:
         if not valid_moves:
             return None
 
-        # انتخاب اولین حرکت معتبر به‌عنوان Hint
         return list(valid_moves.keys())[0]
 
     def draw_hint(self, hint):

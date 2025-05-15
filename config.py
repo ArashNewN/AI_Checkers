@@ -90,7 +90,7 @@ def load_config():
         "menu_height": 30,
         "window_width": 940,
         "board_width": 640,
-        "window_height": 727,
+        "window_height": 720,
         "panel_width": 300,
         "button_spacing_from_bottom": 40,
         "animation_frames": 100,
