@@ -220,15 +220,22 @@ class GameInterface:
                     )
             setattr(self, attr, surface)
 
-    def draw_piece(self, screen, piece_value, row, col):
+    def draw_piece(self, screen, piece_value, row, col, is_removal=False, is_kinged=False):
         if piece_value == 0:
             return
         draw_x = col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
         draw_y = row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
         radius = self.SQUARE_SIZE // 2 - 10
         is_player_2 = piece_value < 0
-        is_king = abs(piece_value) == 2
+        is_king = abs(piece_value) == 2 or is_kinged
         base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
+
+        if is_removal:
+            # رندر مهره حذف‌شده با رنگ خاکستری تیره و شفافیت کم
+            removal_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(removal_surface, (50, 50, 50, 100), (radius, radius), radius)
+            screen.blit(removal_surface, (draw_x - radius, draw_y - radius))
+            return
 
         # سایه
         shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
@@ -301,13 +308,13 @@ class GameInterface:
                 pygame.draw.circle(screen, self.GRAY, (draw_x, draw_y), crown_radius)
                 pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), crown_radius, 1)
 
-    def animate_move(self, piece_value, start_row, start_col, end_row, end_col):
-        print("Attempting to animate move from", (start_row, start_col), "to", (end_row, end_col))
-        # استخراج piece_value از تخته
-        piece_value = self.game.board.board[start_row, start_col]
-        if piece_value == 0:
-            print("Invalid piece_value! Animation aborted.")
+    def animate_move(self, piece_value, start_row, start_col, end_row, end_col, is_removal=False, is_kinged=False):
+        print(
+            f"[Interface.animate_move] Animating move: piece={piece_value}, from ({start_row}, {start_col}) to ({end_row}, {end_col}), is_removal={is_removal}, is_kinged={is_kinged}")
+        if piece_value == 0 or piece_value is None:
+            print("[Interface.animate_move] Invalid piece_value! Animation aborted.")
             return
+
         start_x = start_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
         start_y = start_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
         end_x = end_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
@@ -315,7 +322,7 @@ class GameInterface:
         radius = self.SQUARE_SIZE // 2 - 10
 
         is_player_2 = piece_value < 0
-        is_king = abs(piece_value) == 2
+        is_king = abs(piece_value) == 2 or is_kinged
         base_color = self.settings.player_2_color if is_player_2 else self.settings.player_1_color
 
         piece_surface = None
@@ -324,78 +331,92 @@ class GameInterface:
         else:
             piece_surface = self.player_1_king_surface if is_king else self.player_1_piece_surface
 
-        for frame in range(self.ANIMATION_FRAMES + 1):
-            t = frame / self.ANIMATION_FRAMES
-            current_x = start_x + (end_x - start_x) * (1 - np.cos(t * np.pi)) / 2
-            current_y = start_y + (end_y - start_y) * (1 - np.cos(t * np.pi)) / 2
-            self.draw_game()
-            # سایه
-            shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
-            pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
-            self.screen.blit(shadow_surface, (current_x - radius - 5, current_y - radius - 5))
-            if piece_surface is not None:
-                self.screen.blit(piece_surface, (current_x - radius, current_y - radius))
-            else:
-                gradient_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-                for r in range(radius, 0, -1):
-                    t_r = r / radius
-                    color = tuple(int(c * t_r + 255 * (1 - t_r)) for c in base_color)
-                    if self.settings.piece_style == "circle":
-                        pygame.draw.circle(gradient_surface, color, (radius, radius), r)
-                    elif self.settings.piece_style == "outlined_circle":
-                        pygame.draw.circle(gradient_surface, color, (radius, radius), r)
-                    elif self.settings.piece_style == "square":
-                        pygame.draw.rect(gradient_surface, color, (radius - r, radius - r, r * 2, r * 2))
-                    elif self.settings.piece_style == "diamond":
-                        points = [(radius, radius - r), (radius + r, radius), (radius, radius + r),
-                                  (radius - r, radius)]
-                        pygame.draw.polygon(gradient_surface, color, points)
-                    elif self.settings.piece_style == "star":
-                        points = [
-                            (radius, radius - r),
-                            (radius + r * 0.3, radius - r * 0.3),
-                            (radius + r, radius),
-                            (radius + r * 0.3, radius + r * 0.3),
-                            (radius, radius + r),
-                            (radius - r * 0.3, radius + r * 0.3),
-                            (radius - r, radius),
-                            (radius - r * 0.3, radius - r * 0.3)
-                        ]
-                        pygame.draw.polygon(gradient_surface, color, points)
-                if self.settings.piece_style in ["outlined_circle", "diamond", "star"]:
-                    if self.settings.piece_style == "outlined_circle":
-                        pygame.draw.circle(gradient_surface, self.BLACK, (radius, radius), radius, 2)
-                    elif self.settings.piece_style == "diamond":
-                        points = [(radius, radius - radius), (radius + radius, radius), (radius, radius + radius),
-                                  (radius - radius, radius)]
-                        pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
-                    elif self.settings.piece_style == "star":
-                        points = [
-                            (radius, radius - radius),
-                            (radius + radius * 0.3, radius - radius * 0.3),
-                            (radius + radius, radius),
-                            (radius + radius * 0.3, radius + radius * 0.3),
-                            (radius, radius + radius),
-                            (radius - radius * 0.3, radius + radius * 0.3),
-                            (radius - radius, radius),
-                            (radius - radius * 0.3, radius - radius * 0.3)
-                        ]
-                        pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
-                # درخشش
-                shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-                for r in range(radius // 2, 0, -1):
-                    alpha = int(100 * (r / (radius / 2)))
-                    pygame.draw.circle(shine_surface, (255, 255, 255, alpha),
-                                       (radius - radius // 4, radius - radius // 4), r)
-                gradient_surface.blit(shine_surface, (0, 0))
-                self.screen.blit(gradient_surface, (current_x - radius, current_y - radius))
-                if is_king:
-                    crown_radius = radius // 2
-                    pygame.draw.circle(self.screen, self.GRAY, (current_x, current_y), crown_radius)
-                    pygame.draw.circle(self.screen, self.BLACK, (current_x, current_y), crown_radius, 1)
-            self.game.draw_valid_moves()
-            pygame.display.update()
-            pygame.time.wait(20)
+        if is_removal:
+            # انیمیشن حذف مهره (محو شدن)
+            for frame in range(self.ANIMATION_FRAMES + 1):
+                t = frame / self.ANIMATION_FRAMES
+                alpha = int(255 * (1 - t))  # کاهش شفافیت
+                self.draw_game()
+                removal_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                pygame.draw.circle(removal_surface, (*base_color, alpha), (radius, radius), radius)
+                self.screen.blit(removal_surface, (start_x - radius, start_y - radius))
+                self.game.draw_valid_moves()
+                pygame.display.update()
+                pygame.time.wait(20)
+        else:
+            # انیمیشن حرکت معمولی یا تبدیل به شاه
+            for frame in range(self.ANIMATION_FRAMES + 1):
+                t = frame / self.ANIMATION_FRAMES
+                current_x = start_x + (end_x - start_x) * (1 - np.cos(t * np.pi)) / 2
+                current_y = start_y + (end_y - start_y) * (1 - np.cos(t * np.pi)) / 2
+                self.draw_game()
+                # سایه
+                shadow_surface = pygame.Surface((radius * 2 + 10, radius * 2 + 10), pygame.SRCALPHA)
+                pygame.draw.circle(shadow_surface, (50, 50, 50, 100), (radius + 5, radius + 5), radius)
+                self.screen.blit(shadow_surface, (current_x - radius - 5, current_y - radius - 5))
+                if piece_surface is not None:
+                    self.screen.blit(piece_surface, (current_x - radius, current_y - radius))
+                else:
+                    gradient_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                    for r in range(radius, 0, -1):
+                        t_r = r / radius
+                        color = tuple(int(c * t_r + 255 * (1 - t_r)) for c in base_color)
+                        if self.settings.piece_style == "circle":
+                            pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                        elif self.settings.piece_style == "outlined_circle":
+                            pygame.draw.circle(gradient_surface, color, (radius, radius), r)
+                        elif self.settings.piece_style == "square":
+                            pygame.draw.rect(gradient_surface, color, (radius - r, radius - r, r * 2, r * 2))
+                        elif self.settings.piece_style == "diamond":
+                            points = [(radius, radius - r), (radius + r, radius), (radius, radius + r),
+                                      (radius - r, radius)]
+                            pygame.draw.polygon(gradient_surface, color, points)
+                        elif self.settings.piece_style == "star":
+                            points = [
+                                (radius, radius - r),
+                                (radius + r * 0.3, radius - r * 0.3),
+                                (radius + r, radius),
+                                (radius + r * 0.3, radius + r * 0.3),
+                                (radius, radius + r),
+                                (radius - r * 0.3, radius + r * 0.3),
+                                (radius - r, radius),
+                                (radius - r * 0.3, radius - r * 0.3)
+                            ]
+                            pygame.draw.polygon(gradient_surface, color, points)
+                    if self.settings.piece_style in ["outlined_circle", "diamond", "star"]:
+                        if self.settings.piece_style == "outlined_circle":
+                            pygame.draw.circle(gradient_surface, self.BLACK, (radius, radius), radius, 2)
+                        elif self.settings.piece_style == "diamond":
+                            points = [(radius, radius - radius), (radius + radius, radius), (radius, radius + radius),
+                                      (radius - radius, radius)]
+                            pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+                        elif self.settings.piece_style == "star":
+                            points = [
+                                (radius, radius - radius),
+                                (radius + radius * 0.3, radius - radius * 0.3),
+                                (radius + radius, radius),
+                                (radius + radius * 0.3, radius + radius * 0.3),
+                                (radius, radius + radius),
+                                (radius - radius * 0.3, radius + radius * 0.3),
+                                (radius - radius, radius),
+                                (radius - radius * 0.3, radius - radius * 0.3)
+                            ]
+                            pygame.draw.polygon(gradient_surface, self.BLACK, points, 2)
+                    # درخشش
+                    shine_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+                    for r in range(radius // 2, 0, -1):
+                        alpha = int(100 * (r / (radius / 2)))
+                        pygame.draw.circle(shine_surface, (255, 255, 255, alpha),
+                                           (radius - radius // 4, radius - radius // 4), r)
+                    gradient_surface.blit(shine_surface, (0, 0))
+                    self.screen.blit(gradient_surface, (current_x - radius, current_y - radius))
+                    if is_kinged:
+                        crown_radius = radius // 2
+                        pygame.draw.circle(self.screen, self.GRAY, (current_x, current_y), crown_radius)
+                        pygame.draw.circle(self.screen, self.BLACK, (current_x, current_y), crown_radius, 1)
+                self.game.draw_valid_moves()
+                pygame.display.update()
+                pygame.time.wait(20)
 
     def draw_default_image(self, name, x, y):
         surface = pygame.Surface((self.PLAYER_IMAGE_SIZE, self.PLAYER_IMAGE_SIZE), pygame.SRCALPHA)

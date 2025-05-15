@@ -21,8 +21,9 @@ class ResidualBlock(nn.Module):
 class AlphaZeroNet(nn.Module):
     def __init__(self):
         super().__init__()
-        config = load_config()
-        net_params = config["network_params"]
+        self.config = self._load_config()
+        net_params = self.config["network_params"]
+
         self.conv = nn.Conv2d(net_params["input_channels"], net_params["num_filters"], kernel_size=3, padding=1)
         self.bn = nn.BatchNorm2d(net_params["num_filters"])
         self.res_blocks = nn.ModuleList([ResidualBlock(net_params["num_filters"]) for _ in range(net_params["num_blocks"])])
@@ -37,6 +38,26 @@ class AlphaZeroNet(nn.Module):
         self.dropout_value = nn.Dropout(net_params["dropout_rate"])
         self.fc_value1 = nn.Linear(net_params["board_size"] * net_params["board_size"], 256)
         self.fc_value2 = nn.Linear(256, 1)
+
+    def _load_config(self):
+        """بارگذاری و اعتبارسنجی تنظیمات شبکه عصبی از config.json"""
+        config = load_config()
+        if "network_params" not in config:
+            raise KeyError("Missing network_params in config.json")
+
+        net_params = config["network_params"]
+        required_params = [
+            "input_channels", "num_filters", "num_blocks", "dropout_rate",
+            "board_size", "num_actions"
+        ]
+        for param in required_params:
+            if param not in net_params:
+                raise KeyError(f"Missing {param} in network_params in config.json")
+
+        # افزودن مقادیر پیش‌فرض برای پارامترهای اختیاری
+        net_params["dropout_rate"] = net_params.get("dropout_rate", 0.3)
+
+        return {"network_params": net_params}
 
     def forward(self, x, legal_moves=None):
         x = F.relu(self.bn(self.conv(x)))

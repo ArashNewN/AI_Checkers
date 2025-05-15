@@ -332,7 +332,6 @@ def save_ai_config(ai_config):
     except Exception as e:
         print(f"Error saving AI config to {ai_config_path}: {e}")
 
-# config.py
 def load_ai_specific_config(ai_code):
     ai_specific_config_path = get_ai_specific_config_path(ai_code)
     try:
