@@ -9,44 +9,35 @@ from copy import deepcopy
 
 
 class MoveHistory:
-    """مدیریت تاریخچه حرکات و پشته redo در بازی."""
-
     def __init__(self):
         self.move_history = []
         self.redo_stack = []
 
     def save_state(self, board, turn, valid_moves, player_1_left, player_2_left):
-        """
-        ذخیره وضعیت فعلی بازی در تاریخچه.
-
-        Args:
-            board (numpy.ndarray): آرایه تخته بازی
-            turn (bool): نوبت فعلی (False برای بازیکن 1، True برای بازیکن 2)
-            valid_moves (dict): حرکت‌های معتبر
-            player_1_left (int): تعداد مهره‌های باقی‌مانده بازیکن 1
-            player_2_left (int): تعداد مهره‌های باقی‌مانده بازیکن 2
-        """
+        # تبدیل valid_moves به فرمت (end_row, end_col) با مدیریت هر دو فرمت کلید
+        formatted_valid_moves = {}
+        if valid_moves:
+            for move, skipped in valid_moves.items():
+                if len(move) == 4:
+                    end_row, end_col = move[2], move[3]  # فرمت (start_row, start_col, end_row, end_col)
+                elif len(move) == 2:
+                    end_row, end_col = move  # فرمت (end_row, end_col)
+                else:
+                    print(f"[MoveHistory.save_state] Invalid move format: {move}")
+                    continue
+                formatted_valid_moves[(end_row, end_col)] = skipped
         state = {
             'board': deepcopy(board),
             'turn': turn,
-            'valid_moves': deepcopy(valid_moves),
+            'valid_moves': formatted_valid_moves,
             'player_1_left': player_1_left,
-            'player_2_left': player_2_left
+            'player_2_left': player_2_left,
+            'multi_jump_active': False
         }
         self.move_history.append(state)
         self.redo_stack.clear()
 
-    def clear_redo_stack(self):
-        """پاک کردن پشته redo."""
-        self.redo_stack.clear()
-
     def save_game_state(self, game):
-        """
-        ذخیره وضعیت کامل بازی شامل تایمر.
-
-        Args:
-            game (Game): نمونه کلاس Game
-        """
         state = {
             'board': deepcopy(game.board.board),
             'turn': game.turn,
@@ -55,10 +46,47 @@ class MoveHistory:
             'timer': {
                 'player_1_time': game.timer.get_current_time(False),
                 'player_2_time': game.timer.get_current_time(True)
-            }
+            },
+            'multi_jump_active': game.multi_jump_active,
+            'selected': game.selected,
+            'valid_moves': deepcopy(game.valid_moves)  # valid_moves قبلاً در فرمت درست است
         }
         self.move_history.append(state)
         self.redo_stack.clear()
+
+    def undo(self, game):
+        if not self.move_history:
+            print("No moves to undo")
+            return
+
+        current_state = {
+            'board': deepcopy(game.board.board),
+            'turn': game.turn,
+            'player_1_left': game.board.player_1_left,
+            'player_2_left': game.board.player_2_left,
+            'multi_jump_active': game.multi_jump_active,
+            'selected': game.selected,
+            'valid_moves': deepcopy(game.valid_moves),
+            'timer': {
+                'player_1_time': game.timer.get_current_time(False),
+                'player_2_time': game.timer.get_current_time(True)
+            }
+        }
+        self.redo_stack.append(current_state)
+
+        last_state = self.move_history.pop()
+        game.board.board = last_state['board']
+        game.turn = last_state['turn']
+        game.board.player_1_left = last_state['player_1_left']
+        game.board.player_2_left = last_state['player_2_left']
+        game.multi_jump_active = last_state.get('multi_jump_active', False)
+        game.selected = last_state.get('selected', None)
+        game.valid_moves = last_state.get('valid_moves', {})
+        if 'timer' in last_state:
+            game.timer.set_time(False, last_state['timer']['player_1_time'])
+            game.timer.set_time(True, last_state['timer']['player_2_time'])
+
+        print(f"[MoveHistory.undo] Restored state: turn={game.turn}, multi_jump_active={game.multi_jump_active}, selected={game.selected}, valid_moves={game.valid_moves}")
 
 
 class Game:
@@ -128,6 +156,7 @@ class Game:
         self.score_updated = False
         self.repeat_count = 0
         self.time_up = False
+        self.paused = False  # اضافه کردن متغیر paused
 
         self.init_game()
 
@@ -592,7 +621,8 @@ class Game:
 
     def update_game(self):
         """به‌روزرسانی عمومی وضعیت بازی."""
-        self._update_game()
+        if not self.paused:  # فقط اگر بازی متوقف نباشد، به‌روزرسانی انجام شود
+            self._update_game()
 
     def _update_game(self):
         """به‌روزرسانی داخلی وضعیت بازی."""
@@ -666,6 +696,8 @@ class Game:
         Returns:
             bool: True اگر حرکت یا انتخاب موفق بود، False در غیر این صورت
         """
+        if self.paused:  # اگر بازی متوقف باشد، کلیک‌ها پردازش نشوند
+            return False
         x, y = pos
         self.click_log.append((x, y))
         if len(self.click_log) > 50:
@@ -703,11 +735,16 @@ class Game:
         return False
 
     def draw_valid_moves(self):
-        """نمایش حرکت‌های معتبر روی تخته."""
         if self.valid_moves:
             drawn_moves = set()
             for move in self.valid_moves:
-                row, col = move
+                if len(move) == 2:
+                    row, col = move
+                elif len(move) == 4:
+                    row, col = move[2], move[3]  # فقط مختصات مقصد را بگیریم
+                else:
+                    print(f"[Game.draw_valid_moves] Invalid move format: {move}")
+                    continue
                 if (row, col) not in drawn_moves:
                     print(f"[Game.draw_valid_moves] Drawing move at ({row}, {col})")
                     drawn_moves.add((row, col))

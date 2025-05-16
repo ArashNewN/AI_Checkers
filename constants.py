@@ -15,7 +15,7 @@ SQUARE_SIZE = 80
 BOARD_SIZE = 8
 BORDER_THICKNESS = 7
 MENU_HEIGHT = 30
-WINDOW_WIDTH = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 2 + 310
+WINDOW_WIDTH = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 2 + 410
 BOARD_WIDTH = BOARD_SIZE * SQUARE_SIZE
 WINDOW_HEIGHT = BOARD_SIZE * SQUARE_SIZE + BORDER_THICKNESS * 3 + 10
 PANEL_WIDTH = 300
@@ -51,6 +51,8 @@ LANGUAGES = {
         "add_new_ai": "add_new_ai",
         "draws": "Draws",
         "time": "TIME:",
+        "pause": "pause:",
+        "resume": "resume:",
         "remove_ai": "remove_ai:",
         "avg_move_time": "Avg Move Time (ms)",
         "settings": "Settings",
@@ -207,6 +209,8 @@ LANGUAGES = {
         "player_2_king": "شاه بازیکن ۲",
         "add_ai": "add_ai",
         "ability": "ability",
+        "pause": "pause:",
+        "resume": "resume:",
         "status": "status",
         "ai_players": "ai_players",
         "error_saving_settings": "خطا در ذخیره تنظیمات: {error}",

@@ -165,7 +165,9 @@ def load_config():
         "player_2_color": "#0000ff",
         "board_color_1": "#ffffff",
         "board_color_2": "#8b4513",
+        "assets_dir": str(Path(__file__).parent.parent / "assets"),
         "max_no_capture_moves": 40
+
     }
     config_path = get_config_path()
     try:

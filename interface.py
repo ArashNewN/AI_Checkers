@@ -76,6 +76,12 @@ class GameInterface:
             self.PANEL_WIDTH - 40, 40,
             LANGUAGES[self.settings.language]["reset_scores"], self.LIGHT_GREEN
         )
+        self.pause_button = Button(  # اضافه کردن دکمه Pause
+            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20,
+            self.WINDOW_HEIGHT - self.BUTTON_SPACING_FROM_BOTTOM - 150,
+            self.PANEL_WIDTH - 40, 40,
+            LANGUAGES[settings.language]["pause"], self.LIGHT_GRAY
+        )
         self.player_1_move_ready = True
         self.player_2_move_ready = True
         self.player_1_pause_start = None
@@ -143,6 +149,7 @@ class GameInterface:
             self.load_piece_images()
             self.new_game_button.text = LANGUAGES[self.settings.language]["start_game"]
             self.reset_scores_button.text = LANGUAGES[self.settings.language]["reset_scores"]
+            self.pause_button.text = LANGUAGES[self.settings.language]["pause"]  # به‌روزرسانی متن دکمه Pause
             self.game = Game(self.settings, self)
             self.screen = self.game.screen
             self.current_hand = 0
@@ -447,6 +454,8 @@ class GameInterface:
         self.screen.blit(footer_text, footer_rect)
 
     def draw_side_panel(self):
+        # مقیاس کوچک‌سازی 15% (0.85)
+        scale = 0.85
         panel_rect = pygame.Rect(
             self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,
             self.MENU_HEIGHT,
@@ -456,13 +465,15 @@ class GameInterface:
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, panel_rect)
         y = self.MENU_HEIGHT + 20
 
+        # عنوان نتیجه بازی
         result_title = self.font.render(LANGUAGES[self.settings.language]["game_result"], True, self.BLACK)
         result_rect = result_title.get_rect(
             center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y)
         )
         self.screen.blit(result_title, result_rect)
-        y += 40
+        y += int(40 * scale)
 
+        # نمایش نتیجه بازی
         if self.game.game_over:
             if self.game.winner is None:
                 result_text = "بازی مساوی شد" if self.settings.language == "fa" else "Game is a Draw"
@@ -475,8 +486,9 @@ class GameInterface:
                 center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y)
             )
             self.screen.blit(result_display, result_display_rect)
-        y += 70
+        y += int(70 * scale)
 
+        # نام بازیکنان
         player_1_name = (
             self.settings.player_1_name
             if self.settings.game_mode in ["human_vs_human", "human_vs_ai"]
@@ -488,54 +500,69 @@ class GameInterface:
             else self.settings.al2_name
         )
 
+        # تصاویر بازیکنان
+        scaled_image_size = int(self.PLAYER_IMAGE_SIZE * scale)
         if self.player_1_image_surface:
+            scaled_image = pygame.transform.scale(self.player_1_image_surface, (scaled_image_size, scaled_image_size))
             self.screen.blit(
-                self.player_1_image_surface,
+                scaled_image,
                 (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y)
             )
         else:
-            self.draw_default_image(
-                player_1_name, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y
-            )
+            surface = pygame.Surface((scaled_image_size, scaled_image_size), pygame.SRCALPHA)
+            pygame.draw.circle(surface, self.LIGHT_GRAY,
+                               (scaled_image_size // 2, scaled_image_size // 2),
+                               scaled_image_size // 2)
+            text = self.small_font.render(player_1_name[:2], True, self.BLACK)
+            text_rect = text.get_rect(center=(scaled_image_size // 2, scaled_image_size // 2))
+            surface.blit(text, text_rect)
+            self.screen.blit(surface, (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y))
 
-        vs_font = pygame.font.SysFont('Arial', 24, bold=True)
+        # متن "vs"
+        vs_font = pygame.font.SysFont('Arial', int(24 * scale), bold=True)
         vs_text = vs_font.render("vs", True, self.BLUE)
         vs_text.set_alpha(200)
         vs_rect = vs_text.get_rect(
             center=(
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2,
-                y + self.PLAYER_IMAGE_SIZE // 2
+                y + scaled_image_size // 2
             )
         )
         pygame.draw.rect(
             self.screen, self.LIGHT_GRAY,
-            (vs_rect.x - 5, vs_rect.y - 5, vs_rect.width + 10, vs_rect.height + 10),
-            border_radius=5
+            (vs_rect.x - int(5 * scale), vs_rect.y - int(5 * scale), vs_rect.width + int(10 * scale), vs_rect.height + int(10 * scale)),
+            border_radius=int(5 * scale)
         )
         self.screen.blit(vs_text, vs_rect)
 
+        # تصویر بازیکن دوم
         if self.player_2_image_surface:
+            scaled_image = pygame.transform.scale(self.player_2_image_surface, (scaled_image_size, scaled_image_size))
             self.screen.blit(
-                self.player_2_image_surface,
+                scaled_image,
                 (
-                    self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE,
+                    self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - scaled_image_size,
                     y
                 )
             )
         else:
-            self.draw_default_image(
-                player_2_name,
-                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE,
-                y
-            )
+            surface = pygame.Surface((scaled_image_size, scaled_image_size), pygame.SRCALPHA)
+            pygame.draw.circle(surface, self.LIGHT_GRAY,
+                               (scaled_image_size // 2, scaled_image_size // 2),
+                               scaled_image_size // 2)
+            text = self.small_font.render(player_2_name[:2], True, self.BLACK)
+            text_rect = text.get_rect(center=(scaled_image_size // 2, scaled_image_size // 2))
+            surface.blit(text, text_rect)
+            self.screen.blit(surface, (self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - scaled_image_size, y))
 
-        y += 10
+        y += int(10 * scale)
 
+        # نام‌های بازیکنان
         player_1_name_text = self.small_font.render(player_1_name, True, self.BLACK)
         player_1_name_rect = player_1_name_text.get_rect(
             center=(
-                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20 + self.PLAYER_IMAGE_SIZE // 2,
-                y + self.PLAYER_IMAGE_SIZE + 10
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20 + scaled_image_size // 2,
+                y + scaled_image_size + int(10 * scale)
             )
         )
         self.screen.blit(player_1_name_text, player_1_name_rect)
@@ -543,30 +570,31 @@ class GameInterface:
         player_2_name_text = self.small_font.render(player_2_name, True, self.BLACK)
         player_2_name_rect = player_2_name_text.get_rect(
             center=(
-                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - self.PLAYER_IMAGE_SIZE // 2,
-                y + self.PLAYER_IMAGE_SIZE + 10
+                self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH - 20 - scaled_image_size // 2,
+                y + scaled_image_size + int(10 * scale)
             )
         )
         self.screen.blit(player_2_name_text, player_2_name_rect)
 
-        y += self.PLAYER_IMAGE_SIZE + 30
+        y += int((scaled_image_size + 30) * scale)
 
+        # جدول امتیازات
         table_rect = pygame.Rect(
-            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, self.PANEL_WIDTH - 40, 80
+            self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, int((self.PANEL_WIDTH - 40) * scale), int(80 * scale)
         )
-        shadow_rect = pygame.Rect(table_rect.x + 5, table_rect.y + 5, table_rect.width, table_rect.height)
-        pygame.draw.rect(self.screen, (100, 100, 100), shadow_rect, border_radius=10)
+        shadow_rect = pygame.Rect(table_rect.x + int(5 * scale), table_rect.y + int(5 * scale), table_rect.width, table_rect.height)
+        pygame.draw.rect(self.screen, (100, 100, 100), shadow_rect, border_radius=int(10 * scale))
 
         gradient_surface = pygame.Surface((table_rect.width, table_rect.height), pygame.SRCALPHA)
         for i in range(table_rect.height):
             color = (255 - i * 2, 255 - i * 2, 255 - i * 2)
             pygame.draw.line(gradient_surface, color, (0, i), (table_rect.width, i))
         mask = pygame.Surface((table_rect.width, table_rect.height), pygame.SRCALPHA)
-        pygame.draw.rect(mask, (255, 255, 255, 255), (0, 0, table_rect.width, table_rect.height), border_radius=10)
+        pygame.draw.rect(mask, (255, 255, 255, 255), (0, 0, table_rect.width, table_rect.height), border_radius=int(10 * scale))
         gradient_surface.blit(mask, (0, 0), None, pygame.BLEND_RGBA_MULT)
         self.screen.blit(gradient_surface, (table_rect.x, table_rect.y))
 
-        pygame.draw.rect(self.screen, self.BLACK, table_rect, 2, border_radius=10)
+        pygame.draw.rect(self.screen, self.BLACK, table_rect, 2, border_radius=int(10 * scale))
         pygame.draw.line(
             self.screen, self.BLACK,
             (table_rect.x + table_rect.width // 3, table_rect.y),
@@ -619,31 +647,33 @@ class GameInterface:
         )
         self.screen.blit(pieces_2, pieces_2_rect)
 
-        y += 110
+        y += int(110 * scale)
 
+        # عنوان زمان
         time_title = self.small_font.render(LANGUAGES[self.settings.language]["time"], True, self.BLACK)
         time_title_rect = time_title.get_rect(
             center=(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + self.PANEL_WIDTH // 2, y))
         self.screen.blit(time_title, time_title_rect)
-        y += 20
+        y += int(20 * scale)
 
-        timer_rect = pygame.Rect(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, self.PANEL_WIDTH - 40, 40)
-        shadow_rect = pygame.Rect(timer_rect.x + 5, timer_rect.y + 5, timer_rect.width, timer_rect.height)
-        pygame.draw.rect(self.screen, (100, 100, 100), shadow_rect, border_radius=10)
+        # تایمر
+        timer_rect = pygame.Rect(self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 + 20, y, int((self.PANEL_WIDTH - 40) * scale), int(40 * scale))
+        shadow_rect = pygame.Rect(timer_rect.x + int(5 * scale), timer_rect.y + int(5 * scale), timer_rect.width, timer_rect.height)
+        pygame.draw.rect(self.screen, (100, 100, 100), shadow_rect, border_radius=int(10 * scale))
         gradient_surface = pygame.Surface((timer_rect.width, timer_rect.height), pygame.SRCALPHA)
         for i in range(timer_rect.height):
             color = (135 - i * 2, 206 - i * 2, 235 - i * 2)
             pygame.draw.line(gradient_surface, color, (0, i), (timer_rect.width, i))
         mask = pygame.Surface((timer_rect.width, timer_rect.height), pygame.SRCALPHA)
-        pygame.draw.rect(mask, (255, 255, 255, 255), (0, 0, timer_rect.width, timer_rect.height), border_radius=10)
+        pygame.draw.rect(mask, (255, 255, 255, 255), (0, 0, timer_rect.width, timer_rect.height), border_radius=int(10 * scale))
         gradient_surface.blit(mask, (0, 0), None, pygame.BLEND_RGBA_MULT)
         self.screen.blit(gradient_surface, (timer_rect.x, timer_rect.y))
 
-        pygame.draw.rect(self.screen, self.BLACK, timer_rect, 2, border_radius=10)
+        pygame.draw.rect(self.screen, self.BLACK, timer_rect, 2, border_radius=int(10 * scale))
         pygame.draw.line(self.screen, self.BLACK, (timer_rect.x + timer_rect.width // 2, timer_rect.y),
                          (timer_rect.x + timer_rect.width // 2, timer_rect.y + timer_rect.height), 2)
 
-        bold_font = pygame.font.SysFont('Arial', 18, bold=True)
+        bold_font = pygame.font.SysFont('Arial', int(18 * scale), bold=True)
         player_1_time = self.game.timer.get_current_time(False)
         player_2_time = self.game.timer.get_current_time(True)
         timer_1 = bold_font.render(f"{int(player_1_time)} s", True, self.BLACK if not self.game.turn else self.GRAY)
@@ -656,23 +686,24 @@ class GameInterface:
             center=(timer_rect.x + 3 * timer_rect.width // 4, timer_rect.y + timer_rect.height // 2))
         self.screen.blit(timer_2, timer_2_rect)
 
-        y += 60
+        y += int(60 * scale)
 
+        # دکمه‌های Undo و Redo
         undo_button_x = (
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
-                (self.PANEL_WIDTH - 2 * self.config['undo_button_width'] - self.config['undo_redo_button_spacing']) // 2
+                (self.PANEL_WIDTH - int(2 * self.config['undo_button_width'] * scale) - int(self.config['undo_redo_button_spacing'] * scale)) // 2
         )
-        undo_button_y = y + self.config['undo_redo_y_offset']
+        undo_button_y = y + int(self.config['undo_redo_y_offset'] * scale)
 
         undo_button = Button(
-            undo_button_x, undo_button_y, self.config['undo_button_width'], self.config['undo_button_height'],
+            undo_button_x, undo_button_y, int(self.config['undo_button_width'] * scale), int(self.config['undo_button_height'] * scale),
             LANGUAGES[self.settings.language]["undo"], self.SKY_BLUE
         )
         undo_button.enabled = len(self.game.history.move_history) >= 2
 
         redo_button = Button(
-            undo_button_x + self.config['undo_button_width'] + self.config['undo_redo_button_spacing'], undo_button_y,
-            self.config['redo_button_width'], self.config['redo_button_height'],
+            undo_button_x + int(self.config['undo_button_width'] * scale) + int(self.config['undo_redo_button_spacing'] * scale), undo_button_y,
+            int(self.config['redo_button_width'] * scale), int(self.config['redo_button_height'] * scale),
             LANGUAGES[self.settings.language]["redo"], self.SKY_BLUE
         )
         redo_button.enabled = len(self.game.history.redo_stack) > 0
@@ -681,24 +712,25 @@ class GameInterface:
         for button in self.undo_buttons:
             button.draw(self.screen)
 
-        y += self.config['undo_button_height'] + self.config['undo_redo_y_offset'] + 10
+        y += int((self.config['undo_button_height'] + self.config['undo_redo_y_offset'] + 10) * scale)
 
+        # دکمه‌های Hint
         hint_button_x = (
                 self.BOARD_WIDTH + self.BORDER_THICKNESS * 2 +
-                (self.PANEL_WIDTH - 2 * self.config['hint_button_width'] - self.config['hint_button_spacing']) // 2
+                (self.PANEL_WIDTH - int(2 * self.config['hint_button_width'] * scale) - int(self.config['hint_button_spacing'] * scale)) // 2
         )
-        hint_button_y = y + self.config['hint_button_y_offset']
+        hint_button_y = y + int(self.config['hint_button_y_offset'] * scale)
 
         p1_hint_text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p1 else "hint_off"]
         p1_hint_button = Button(
-            hint_button_x, hint_button_y, self.config['hint_button_width'], self.config['hint_button_height'],
+            hint_button_x, hint_button_y, int(self.config['hint_button_width'] * scale), int(self.config['hint_button_height'] * scale),
             p1_hint_text, self.SKY_BLUE
         )
 
         p2_hint_text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p2 else "hint_off"]
         p2_hint_button = Button(
-            hint_button_x + self.config['hint_button_width'] + self.config['hint_button_spacing'], hint_button_y,
-            self.config['hint_button_width'], self.config['hint_button_height'],
+            hint_button_x + int(self.config['hint_button_width'] * scale) + int(self.config['hint_button_spacing'] * scale), hint_button_y,
+            int(self.config['hint_button_width'] * scale), int(self.config['hint_button_height'] * scale),
             p2_hint_text, self.SKY_BLUE
         )
 
@@ -720,8 +752,10 @@ class GameInterface:
         for button in self.hint_buttons:
             button.draw(self.screen)
 
-        y += self.config['hint_button_height'] + self.config['hint_button_y_offset'] + 10
+        y += int((self.config['hint_button_height'] + self.config['hint_button_y_offset'] + 10) * scale)
 
+        # دکمه‌های بازی جدید، بازنشانی امتیازات و توقف
+        self.pause_button.draw(self.screen)
         self.new_game_button.draw(self.screen)
         self.reset_scores_button.draw(self.screen)
 
@@ -807,6 +841,15 @@ class GameInterface:
                         self.game.player_1_wins = 0
                         self.game.player_2_wins = 0
                         save_stats({"player_1_wins": 0, "player_2_wins": 0})
+                elif self.pause_button.is_clicked(pos) and self.game.game_started and not self.game.game_over:
+                    print("Pause button clicked")
+                    self.game.paused = not self.game.paused
+                    if self.game.paused:
+                        self.game.timer.pause()
+                        self.pause_button.text = LANGUAGES[self.settings.language]["resume"]
+                    else:
+                        self.game.timer.unpause()
+                        self.pause_button.text = LANGUAGES[self.settings.language]["pause"]
                 elif self.game.game_started:
                     for button in self.undo_buttons:
                         if hasattr(button, 'enabled') and button.enabled and button.is_clicked(pos):
@@ -906,7 +949,16 @@ class GameInterface:
             pass
 
     def undo_move(self):
+        if len(self.game.history.move_history) < 1:
+            print("No moves to undo")
+            return
         self.game.history.undo(self.game)
+        # اگر در حالت پرش چندگانه هستیم، حرکت‌های معتبر را بازسازی می‌کنیم
+        if self.game.multi_jump_active and self.game.selected:
+            valid_moves = self.game.get_valid_moves(*self.game.selected)
+            self.game.valid_moves = {(move[2], move[3]): skipped for move, skipped in valid_moves.items() if skipped}
+        elif not self.game.multi_jump_active:
+            self.game.valid_moves = {}  # پاک کردن حرکت‌های معتبر اگر پرش چندگانه فعال نیست
         self.game.draw_valid_moves()
 
     def redo_move(self):

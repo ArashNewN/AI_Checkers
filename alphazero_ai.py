@@ -15,28 +15,6 @@ from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
 from .checkers_game import CheckersGame
 
-# به جای import واقعی، یک کلاس موقت تعریف می‌کنیم
-class AlphaZeroNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.dummy_layer = nn.Linear(1, 1)
-
-    def forward(self, x):
-        return torch.zeros((x.size(0), 64))  # خروجی موقت
-
-# به جای MCTS، یک کلاس موقت تعریف می‌کنیم
-class MCTS:
-    def __init__(self, ai, game, model):
-        self.ai = ai
-        self.game = game
-        self.model = model
-
-    def search(self, state, valid_moves):
-        # خروجی موقت برای تست
-        move_probs = [1.0 / len(valid_moves) for _ in valid_moves]
-        value = 0.0
-        return move_probs, value
-
 AI_METADATA = {
     "type": "alphazero_ai",
     "description": "هوش مصنوعی پیشرفته مبتنی بر الگوریتم AlphaZero با MCTS.",
@@ -62,6 +40,30 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+# به جای import واقعی، یک کلاس موقت تعریف می‌کنیم
+class AlphaZeroNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.dummy_layer = nn.Linear(1, 1)
+
+    def forward(self, x):
+        return torch.zeros((x.size(0), 64))  # خروجی موقت
+
+# به جای MCTS، یک کلاس موقت تعریف می‌کنیم
+class MCTS:
+    def __init__(self, ai, game, model):
+        self.ai = ai
+        self.game = game
+        self.model = model
+
+    def search(self, state, valid_moves):
+        # خروجی موقت برای تست
+        move_probs = [1.0 / len(valid_moves) for _ in valid_moves]
+        value = 0.0
+        return move_probs, value
+
 
 class AlphaZeroAI(BaseAI):
     metadata = AI_METADATA

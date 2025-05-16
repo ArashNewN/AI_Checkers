@@ -6,15 +6,24 @@ from .config import save_config, load_config, load_ai_config, save_ai_config, lo
     save_ai_specific_config, DEFAULT_AI_PARAMS
 from .utils import hex_to_rgb, rgb_to_hex
 import torch
-import os
 import json
 import sys
 import importlib
 from pathlib import Path
 import logging
 
+# ایجاد پوشه logs در صورت عدم وجود
+log_dir = Path(__file__).parent.parent / "logs"
+log_dir.mkdir(parents=True, exist_ok=True)
+
 # تنظیم لاگ‌گیری
-# logging.basicConfig(level=logging.INFO, filename=Path(__file__).parent.parent / "logs" / "app.log")
+logging.basicConfig(
+    level=logging.INFO,
+    filename=Path(__file__).parent.parent / "logs" / "app.log",
+    encoding="utf-8",  # اضافه کردن کدگذاری UTF-8
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 # مسیر پروژه
 project_dir = Path(__file__).parent.parent
@@ -1103,7 +1112,6 @@ class AIProgressWindow(BaseWindow):
     def __init__(self, interface, root=None):
         super().__init__(interface, root)
         self.pth_dir = self.pth_dir
-        self.create_widgets()
 
     def create_widgets(self):
         self.create_window(
