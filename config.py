@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 import importlib
 
-
 DEFAULT_AI_PARAMS = {
     "training_params": {
         "memory_size": 10000,
@@ -15,7 +14,8 @@ DEFAULT_AI_PARAMS = {
         "epsilon_end": 0.01,
         "epsilon_decay": 0.999,
         "update_target_every": 100,
-        "reward_threshold": 0.5
+        "reward_threshold": 0.5,
+        "weight_decay": 0.0  # مقدار پیش‌فرض
     },
     "reward_weights": {
         "piece_difference": 1.0,
@@ -65,25 +65,25 @@ DEFAULT_AI_PARAMS = {
 }
 
 def get_stats_path():
-    """بازگرداندن مسیر فایل stats.json"""
+    """Returns the path to stats.json."""
     return Path(__file__).parent.parent / "stats.json"
 
 def get_config_path():
-    """بازگرداندن مسیر فایل config.json"""
+    """Returns the path to config.json."""
     return Path(__file__).parent.parent / "config.json"
 
 def get_ai_config_path():
-    """بازگرداندن مسیر فایل ai_config.json"""
+    """Returns the path to ai_config.json."""
     return Path(__file__).parent.parent / "configs" / "ai_config.json"
 
 def get_ai_specific_config_path(ai_code):
-    """بازگرداندن مسیر فایل کانفیگ خاص AI (مثل al_config.json)"""
+    """Returns the path to AI-specific config (e.g., al_config.json)."""
     return Path(__file__).parent.parent / "configs" / "ai" / f"{ai_code}_config.json"
 
 def load_config():
-    """بارگذاری تنظیمات غیر AI از فایل config.json یا ایجاد آن با تنظیمات پیش‌فرض"""
+    """Loads non-AI settings from config.json or creates it with defaults."""
     default_config = {
-        # ثابت‌های رابط کاربری
+        # UI constants
         "square_size": 80,
         "board_size": 8,
         "border_thickness": 7,
@@ -110,24 +110,24 @@ def load_config():
         "advanced_config_window_width": 500,
         "advanced_config_window_height": 600,
         "game_version": "1.0",
-        # تنظیمات جدید برای Hint
+        # Hint settings
         "hint_enabled_p1_default": False,
         "hint_enabled_p2_default": False,
-        "hint_circle_color": [255, 165, 0],  # نارنجی
+        "hint_circle_color": [255, 165, 0],  # Orange
         "hint_circle_radius": 10,
-        "hint_blink_interval": 500,  # میلی‌ثانیه
+        "hint_blink_interval": 500,  # ms
         "hint_button_width": 120,
         "hint_button_height": 40,
         "hint_button_spacing": 10,
         "hint_button_y_offset": 10,
-        # تنظیمات جدید برای Undo/Redo
+        # Undo/Redo settings
         "undo_button_width": 120,
         "undo_button_height": 40,
         "redo_button_width": 120,
         "redo_button_height": 40,
         "undo_redo_button_spacing": 10,
         "undo_redo_y_offset": 10,
-        # رنگ‌ها
+        # Colors
         "black": [0, 0, 0],
         "white": [255, 255, 255],
         "red": [255, 0, 0],
@@ -136,7 +136,7 @@ def load_config():
         "sky_blue": [135, 206, 235],
         "light_gray": [211, 211, 211],
         "light_green": [144, 238, 144],
-        # تنظیمات بازی
+        # Game settings
         "piece_style": "circle",
         "sound_enabled": False,
         "ai_pause_time": 20,
@@ -166,8 +166,10 @@ def load_config():
         "board_color_1": "#ffffff",
         "board_color_2": "#8b4513",
         "assets_dir": str(Path(__file__).parent.parent / "assets"),
-        "max_no_capture_moves": 40
-
+        "max_no_capture_moves": 40,
+        "max_uniform_moves": 5,  # Added
+        "max_total_moves": 40,   # Added
+        "logging_level": "ERROR" # Added for checkers_core
     }
     config_path = get_config_path()
     try:
@@ -192,7 +194,7 @@ def load_config():
     return config
 
 def save_config(config):
-    """ذخیره تنظیمات غیر AI در فایل config.json"""
+    """Saves non-AI settings to config.json."""
     config_path = get_config_path()
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,9 +205,9 @@ def save_config(config):
         print(f"Error saving config to {config_path}: {e}")
 
 def load_ai_config():
-    """بارگذاری تنظیمات AI از ai_config.json و فایل‌های کانفیگ مجزا"""
+    """Loads AI settings from ai_config.json and separate config files."""
     default_ai_config = {
-        "ai_types": {},  # خالی، بدون AI پیش‌فرض
+        "ai_types": {},  # Empty, no default AIs
         "ai_configs": {
             "player_1": {
                 "ai_type": "none",
@@ -220,7 +222,7 @@ def load_ai_config():
                 "params": {}
             }
         },
-        "available_ais": []  # خالی، بدون AI پیش‌فرض
+        "available_ais": []  # Empty, no default AIs
     }
 
     ai_config_path = get_ai_config_path()
@@ -245,7 +247,7 @@ def load_ai_config():
         ai_config = default_ai_config
         save_ai_config(ai_config)
 
-    # اعتبارسنجی کدهای دوحرفی
+    # Validate two-letter codes
     used_codes = set()
     for ai in ai_config["available_ais"]:
         code = ai.get("code")
@@ -257,7 +259,7 @@ def load_ai_config():
             continue
         used_codes.add(code)
 
-    # اضافه کردن AIهای جدید به ai_types
+    # Add new AIs to ai_types
     for ai in ai_config["available_ais"]:
         ai_type = ai.get("type")
         if ai_type and ai_type not in ai_config["ai_types"]:
@@ -267,7 +269,7 @@ def load_ai_config():
                 "code": ai.get("code")
             }
 
-    # اعتبارسنجی ماژول‌های AI
+    # Validate AI modules
     project_dir = Path(__file__).parent
     root_dir = project_dir.parent
     if str(root_dir) not in sys.path:
@@ -290,7 +292,7 @@ def load_ai_config():
                 if hasattr(module, class_name):
                     valid_ai_types[ai_type] = ai_info
                     print(f"AI type {ai_type} validated: module {full_module_name}, class {class_name}")
-                    # ایجاد فایل کانفیگ مجزا برای AI
+                    # Create separate AI config file
                     ai_code = ai_info.get("code")
                     if ai_code:
                         ai_specific_config_path = get_ai_specific_config_path(ai_code)
@@ -308,7 +310,7 @@ def load_ai_config():
 
     ai_config["ai_types"] = valid_ai_types
 
-    # لود تنظیمات خاص AIها از فایل‌های کانفیگ مجزا
+    # Load AI-specific settings from separate config files
     for player in ["player_1", "player_2"]:
         ai_type = ai_config["ai_configs"][player]["ai_type"]
         if ai_type != "none" and ai_type in valid_ai_types:
@@ -324,7 +326,7 @@ def load_ai_config():
     return ai_config
 
 def save_ai_config(ai_config):
-    """ذخیره تنظیمات AI در فایل ai_config.json"""
+    """Saves AI settings to ai_config.json."""
     ai_config_path = get_ai_config_path()
     try:
         ai_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +337,7 @@ def save_ai_config(ai_config):
         print(f"Error saving AI config to {ai_config_path}: {e}")
 
 def load_ai_specific_config(ai_code):
+    """Loads AI-specific config from its config file (e.g., al_config.json)."""
     ai_specific_config_path = get_ai_specific_config_path(ai_code)
     try:
         if ai_specific_config_path.exists():
@@ -351,7 +354,7 @@ def load_ai_specific_config(ai_code):
                                 for key, value in param_values.items():
                                     if key not in config[player][param_type]:
                                         config[player][param_type][key] = value
-                #print(f"Loaded AI specific config from {ai_specific_config_path}: {config}")
+                print(f"Loaded AI specific config from {ai_specific_config_path}")
         else:
             print(f"AI specific config file not found at {ai_specific_config_path}, creating with default config")
             config = {
@@ -370,7 +373,7 @@ def load_ai_specific_config(ai_code):
         return config
 
 def save_ai_specific_config(ai_code, config):
-    """ذخیره تنظیمات خاص AI در فایل کانفیگ خودش (مثل al_config.json)"""
+    """Saves AI-specific settings to its config file (e.g., al_config.json)."""
     ai_specific_config_path = get_ai_specific_config_path(ai_code)
     try:
         ai_specific_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -381,7 +384,7 @@ def save_ai_specific_config(ai_code, config):
         print(f"Error saving AI specific config to {ai_specific_config_path}: {e}")
 
 def load_stats():
-    """بارگذاری آمار بازی"""
+    """Loads game statistics."""
     stats_path = get_stats_path()
     default_stats = {
         "player_1_wins": 0,
@@ -402,7 +405,7 @@ def load_stats():
     return default_stats
 
 def save_stats(stats):
-    """ذخیره آمار بازی"""
+    """Saves game statistics."""
     stats_path = get_stats_path()
     try:
         stats_path.parent.mkdir(parents=True, exist_ok=True)

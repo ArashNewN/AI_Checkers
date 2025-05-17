@@ -26,3 +26,8 @@ def rgb_to_hex(rgb):
         import logging
         logging.warning(f"Invalid RGB input: {rgb}. Using default color #ffffff")
         return "#ffffff"
+
+
+class CheckersError(Exception):
+    """Custom exception for checkers game errors."""
+    pass

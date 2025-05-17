@@ -1,15 +1,20 @@
+# game.py
 import pygame
 import importlib
 import logging
-from copy import deepcopy
+from .checkers_core import get_piece_moves, make_move, log_to_json
 from .board import Board
+from .settings import GameSettings
 from .timer import TimerManager
+from pathlib import Path
 from .rewards import RewardCalculator
-from .config import load_config, load_stats, save_stats, load_ai_config
+from .config import load_stats, save_stats, load_ai_config, load_config
+from .utils import CheckersError
 
-# تنظیم لاگینگ
+# Load configuration
+config = load_config()
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=getattr(logging, config.get("logging_level", "ERROR")),
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler('game.log'),
@@ -19,32 +24,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MoveHistory:
+    """Manages the history of game states for undo/redo functionality.
+
+    Attributes:
+        move_history (list): List of saved game states.
+        redo_stack (list): Stack of states for redo.
+    """
     def __init__(self):
         self.move_history = []
         self.redo_stack = []
 
     def save_state(self, game):
-        """ذخیره وضعیت بازی."""
+        """Saves the current game state."""
         try:
-            formatted_valid_moves = {}
-            for move, skipped in game.valid_moves.items():
-                if len(move) == 4:
-                    end_row, end_col = move[2], move[3]
-                elif len(move) == 2:
-                    end_row, end_col = move
-                else:
-                    logger.error(f"Invalid move format: {move}")
-                    continue
-                formatted_valid_moves[(end_row, end_col)] = skipped
-
             state = {
-                'board': deepcopy(game.board.board),
+                'board': game.board.board.copy(),
                 'turn': game.turn,
-                'valid_moves': formatted_valid_moves,
                 'player_1_left': game.board.player_1_left,
                 'player_2_left': game.board.player_2_left,
                 'multi_jump_active': game.multi_jump_active,
                 'selected': game.selected,
+                'valid_moves': game.valid_moves.copy(),
                 'timer': {
                     'player_1_time': game.timer.get_current_time(False),
                     'player_2_time': game.timer.get_current_time(True)
@@ -57,27 +57,25 @@ class MoveHistory:
             logger.error(f"Error saving game state: {e}")
 
     def undo(self, game):
-        """بازگرداندن حرکت قبلی."""
+        """Restores the previous game state."""
         try:
             if not self.move_history:
                 logger.info("No moves to undo")
                 return
-
             current_state = {
-                'board': deepcopy(game.board.board),
+                'board': game.board.board.copy(),
                 'turn': game.turn,
                 'player_1_left': game.board.player_1_left,
                 'player_2_left': game.board.player_2_left,
                 'multi_jump_active': game.multi_jump_active,
                 'selected': game.selected,
-                'valid_moves': deepcopy(game.valid_moves),
+                'valid_moves': game.valid_moves.copy(),
                 'timer': {
                     'player_1_time': game.timer.get_current_time(False),
                     'player_2_time': game.timer.get_current_time(True)
                 }
             }
             self.redo_stack.append(current_state)
-
             last_state = self.move_history.pop()
             game.board.board = last_state['board']
             game.turn = last_state['turn']
@@ -89,132 +87,172 @@ class MoveHistory:
             if 'timer' in last_state:
                 game.timer.set_time(False, last_state['timer']['player_1_time'])
                 game.timer.set_time(True, last_state['timer']['player_2_time'])
-
             logger.info(f"Restored state: turn={game.turn}, multi_jump_active={game.multi_jump_active}")
         except Exception as e:
             logger.error(f"Error undoing move: {e}")
 
 class Game:
-    """کلاس اصلی بازی شطرنج چینی (Checkers)."""
+    """Main class for the Checkers game.
 
-    def __init__(self, settings, interface=None):
-        """مقداردهی اولیه بازی."""
+    Attributes:
+        board (Board): Current board state.
+        settings: Game settings.
+        interface: User interface.
+        turn (bool): False for player 1, True for player 2.
+        game_over (bool): Whether the game is over.
+    """
+
+    def __init__(self, settings=None, interface=None):
         try:
-            config = load_config()
-            self._load_config(config)
-            self.settings = settings
+            self.config = load_config()
+            if isinstance(settings, GameSettings):
+                self.settings = settings
+            else:
+                settings_dict = settings or {}
+                for key, value in self.config.items():
+                    if key not in settings_dict:
+                        settings_dict[key] = value
+                assets_dir = settings_dict.get("assets_dir", "assets")
+                # اعمال تنظیمات گرافیکی پیش‌فرض اگر خالی باشند
+                settings_dict["player_1_piece_image"] = settings_dict.get("player_1_piece_image") or str(
+                    Path(assets_dir) / "white_piece.png")
+                settings_dict["player_2_piece_image"] = settings_dict.get("player_2_piece_image") or str(
+                    Path(assets_dir) / "black_piece.png")
+                settings_dict["player_1_king_image"] = settings_dict.get("player_1_king_image") or str(
+                    Path(assets_dir) / "white_king.png")
+                settings_dict["player_2_king_image"] = settings_dict.get("player_2_king_image") or str(
+                    Path(assets_dir) / "black_king.png")
+                self.settings = GameSettings(**settings_dict)
+            # اطمینان از وجود game_mode و player_1_ai_type
+            if not hasattr(self.settings, "game_mode") or not self.settings.game_mode:
+                setattr(self.settings, "game_mode", "ai_vs_ai")  # یا "human_vs_ai" بسته به نیاز
+            if not hasattr(self.settings, "player_1_ai_type") or not self.settings.player_1_ai_type:
+                setattr(self.settings, "player_1_ai_type", "advanced_ai")
             self.interface = interface
-            self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+            self.screen = pygame.display.set_mode((
+                getattr(self.settings, "window_width", 940),
+                getattr(self.settings, "window_height", 720)
+            ))
             pygame.display.set_caption('Checkers: Player 1 vs Player 2')
             self._init_fonts()
             self._init_stats()
-            self._init_ai_players()
-            self.timer = TimerManager(self.settings.use_timer, self.settings.game_time)
+            self.board = Board(self.settings)
+            self.timer = TimerManager(
+                getattr(self.settings, "use_timer", True),
+                getattr(self.settings, "game_time", 5)
+            )
             self.history = MoveHistory()
-            self._reset_game_state()
-            self.init_game()
+            self.game_over = False
+            self.game_started = False
+            self.last_update_time = 0
+            self.multi_jump_active = False
+            self.repeat_count = 0
+            self.selected = None
+            self.turn = False
+            self.valid_moves = {}
+            self.winner = None
+            self.consecutive_uniform_moves = {1: 0, 2: 0}
+            self.total_moves = {1: 0, 2: 0}
+            self.no_capture_or_king_moves = 0
+            self.last_state = None
+            self.last_action = None
+            self.move_log = []
+            self.click_log = []
+            self.score_updated = False
+            self.time_up = False
+            self.paused = False
+            self._init_ai_players()
             logger.info("Game initialized")
         except Exception as e:
             logger.error(f"Error initializing game: {e}")
             raise
 
-    def _load_config(self, config):
-        """بارگذاری تنظیمات از config.json."""
-        self.board_size = config.get("board_size", 8)
-        self.max_no_capture_moves = config.get("max_no_capture_moves", 40)
-        self.max_uniform_moves = config.get("max_uniform_moves", 5)
-        self.max_total_moves = config.get("max_total_moves", 40)
-        self.window_width = config.get("window_width", 940)
-        self.window_height = config.get("window_height", 720)
-        self.board_width = config.get("board_width", 640)
-        self.menu_height = config.get("menu_height", 80)
-        self.border_thickness = config.get("border_thickness", 10)
-        self.square_size = config.get("square_size", 80)
-        self.red = config.get("colors", {}).get("red", [255, 0, 0])
-        self.hint_enabled_p1 = config.get("hint_enabled_p1", True)
-        self.hint_enabled_p2 = config.get("hint_enabled_p2", True)
-
     def _init_fonts(self):
-        """مقداردهی اولیه فونت‌ها."""
+        """Initializes fonts for the game."""
         font_name = 'Vazir' if 'Vazir' in pygame.font.get_fonts() else 'Arial'
         self.font = pygame.font.SysFont(font_name, 24)
         self.small_font = pygame.font.SysFont(font_name, 18)
 
     def _init_stats(self):
-        """بارگذاری آمار بازی."""
+        """Loads game statistics."""
         stats = load_stats()
         self.player_1_wins = stats.get("player_1_wins", 0)
         self.player_2_wins = stats.get("player_2_wins", 0)
 
     def _init_ai_players(self):
-        """مقداردهی اولیه بازیکنان AI."""
+        """Initializes AI players."""
+        ai_config = load_ai_config()
         self.ai_players = {}
-        if self.settings.game_mode in ["human_vs_ai", "ai_vs_ai"] or self.settings.player_1_ai_type != "none" or self.settings.player_2_ai_type != "none":
+        game_mode = getattr(self.settings, "game_mode", "human_vs_human")
+        player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
+        player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
+        if game_mode in ["human_vs_ai", "ai_vs_ai"] or player_1_ai_type != "none" or player_2_ai_type != "none":
             self.reward_calculator = RewardCalculator(self)
         else:
             self.reward_calculator = None
         self.update_ai_players()
 
-    def _reset_game_state(self):
-        """ریست کردن وضعیت بازی."""
-        self.consecutive_uniform_moves = {1: 0, 2: 0}
-        self.total_moves = {1: 0, 2: 0}
-        self.multi_jump_active = False
-        self.no_capture_or_king_moves = 0
-        self.last_update_time = pygame.time.get_ticks()
-        self.board = None
-        self.selected = None
-        self.turn = False if self.settings.player_starts else True
-        self.valid_moves = {}
-        self.game_over = False
-        self.winner = None
-        self.last_state = None
-        self.last_action = None
-        self.move_log = []
-        self.click_log = []
-        self.game_started = False
-        self.score_updated = False
-        self.repeat_count = 0
-        self.time_up = False
-        self.paused = False
-
     def update_ai_players(self):
-        """به‌روزرسانی بازیکنان هوش مصنوعی."""
+        """Updates AI players based on configuration."""
         try:
             config_dict = load_ai_config()
+            # افزودن تنظیمات گرافیکی به config_dict
+            config_dict["game_settings"] = {
+                "player_1_piece_image": getattr(self.settings, "player_1_piece_image", ""),
+                "player_2_piece_image": getattr(self.settings, "player_2_piece_image", ""),
+                "player_1_king_image": getattr(self.settings, "player_1_king_image", ""),
+                "player_2_king_image": getattr(self.settings, "player_2_king_image", ""),
+                "board_size": getattr(self.settings, "board_size", 8)
+            }
+            logger.debug(f"Game settings in config_dict: {config_dict['game_settings']}")
             ai_type_to_class = self._load_ai_classes(config_dict)
             if not ai_type_to_class:
                 logger.error("No valid AI classes loaded")
                 return
-
             players = []
-            if self.settings.game_mode == "ai_vs_ai":
+            game_mode = getattr(self.settings, "game_mode", "human_vs_human")
+            player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
+            player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
+            logger.debug(
+                f"Game mode: {game_mode}, Player 1 AI type: {player_1_ai_type}, Player 2 AI type: {player_2_ai_type}")
+            if game_mode == "ai_vs_ai":
                 players = ["player_1", "player_2"]
-            elif self.settings.game_mode == "human_vs_ai":
+            elif game_mode == "human_vs_ai":
                 players = ["player_2"]
-
+            elif player_1_ai_type != "none":
+                players = ["player_1"]
+            elif player_2_ai_type != "none":
+                players = ["player_2"]
+            logger.debug(f"Players to initialize: {players}")
             for player in players:
                 ai_id = "ai_1" if player == "player_1" else "ai_2"
-                settings = config_dict["ai_configs"].get(player, {})
-                ai_type = settings.get("ai_type")
-                model_name = settings.get("ai_code", "default")
+                ai_settings = config_dict["ai_configs"].get(player, {})
+                ai_type = ai_settings.get("ai_type")
+                model_name = ai_settings.get("ai_code", "default")
+                logger.debug(f"Initializing AI for {player}: ai_id={ai_id}, ai_type={ai_type}, model_name={model_name}")
                 if ai_type and ai_type != "none":
                     ai_class = ai_type_to_class.get(ai_type)
                     if ai_class:
-                        self.ai_players[ai_id] = ai_class(game=self, model_name=model_name, ai_id=ai_id, config=config_dict)
+                        self.ai_players[ai_id] = ai_class(
+                            game=self,
+                            model_name=model_name,
+                            ai_id=ai_id,
+                            config=config_dict
+                        )
                         logger.info(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
                     else:
                         logger.error(f"No AI class found for type: {ai_type}")
         except Exception as e:
-            logger.error(f"Error updating AI players: {e}")
+            logger.error(f"Error updating AI players: {str(e)}")
+            raise  # برای دیباگ، استثنا را پرتاب می‌کنیم
 
     def _load_ai_classes(self, config_dict):
-        """بارگذاری کلاس‌های AI از تنظیمات."""
+        """Loads AI classes from configuration."""
         ai_type_to_class = {}
         for ai_info in config_dict.get("available_ais", []):
             try:
                 module_name = ai_info.get("module")
-                class_name = ai_info.get("class")
+                class_name = ai_info.get("class", "UnknownClass")
                 ai_type = ai_info.get("type")
                 if not module_name or not class_name:
                     logger.error(f"Missing module or class in ai_info: {ai_info}")
@@ -231,7 +269,7 @@ class Game:
         return ai_type_to_class
 
     def init_game(self):
-        """مقداردهی اولیه وضعیت بازی."""
+        """Initializes the game state."""
         try:
             self._reset_game_state()
             self.board = Board(self.settings)
@@ -241,7 +279,7 @@ class Game:
             logger.error(f"Error initializing game: {e}")
 
     def start_game(self):
-        """شروع یک بازی جدید."""
+        """Starts a new game."""
         try:
             self.game_started = True
             self.game_over = False
@@ -258,7 +296,7 @@ class Game:
             logger.error(f"Error starting game: {e}")
 
     def reset_board(self):
-        """ریست کردن تخته بازی."""
+        """Resets the game board."""
         try:
             self._reset_game_state()
             self.board = Board(self.settings)
@@ -268,280 +306,288 @@ class Game:
         except Exception as e:
             logger.error(f"Error resetting board: {e}")
 
+    def _reset_game_state(self):
+        """Resets the game state."""
+        self.consecutive_uniform_moves = {1: 0, 2: 0}
+        self.total_moves = {1: 0, 2: 0}
+        self.multi_jump_active = False
+        self.no_capture_or_king_moves = 0
+        self.last_update_time = pygame.time.get_ticks()
+        self.selected = None
+        self.turn = False if self.settings.player_starts else True
+        self.valid_moves = {}
+        self.game_over = False
+        self.winner = None
+        self.last_state = None
+        self.last_action = None
+        self.move_log = []
+        self.click_log = []
+        self.game_started = False
+        self.score_updated = False
+        self.repeat_count = 0
+        self.time_up = False
+        self.paused = False
+
     def make_ai_move(self, ai_id=None):
-        """اجرای حرکت توسط AI."""
         try:
-            ai_id = ai_id or ("ai_1" if not self.turn else "ai_2")
-            if ai_id not in self.ai_players:
-                logger.error(f"Invalid AI ID: {ai_id}")
+            ai = self.ai_players.get(ai_id)
+            if not ai:
+                log_to_json(
+                    f"No AI found for {ai_id}. Available AI players: {list(self.ai_players.keys())}",
+                    level="ERROR",
+                    extra_data={"ai_id": ai_id}
+                )
                 return False
-
-            ai = self.ai_players[ai_id]
             player_number = 1 if ai_id == "ai_1" else 2
-            valid_moves = self._get_ai_valid_moves(ai)
-            if not valid_moves:
-                logger.info("No valid AI moves available")
+            player = 1 if player_number == 1 else -1
+            move = ai.get_move(self.board.board)
+            if not move:
+                log_to_json(
+                    f"No valid move returned by {ai_id}",
+                    level="WARNING",
+                    extra_data={"ai_id": ai_id}
+                )
                 return False
-
-            move = ai.get_move(self.board.board) or list(valid_moves.keys())[0]
             from_row, from_col, to_row, to_col = move
-
-            if self.multi_jump_active and self.selected and (from_row, from_col) != self.selected:
-                self.selected = (from_row, from_col)
-
-            self.history.save_state(self)
-            board_before = self.board.board.copy()
-            if self.select(from_row, from_col) and self._move(to_row, to_col):
-                board_after = self.board.board.copy()
-                reward = self.reward_calculator.get_reward(player_number=player_number)
-                ai.update(((from_row, from_col), (to_row, to_col)), reward, board_before, board_after)
-                logger.info(f"AI move successful: {move}, reward: {reward}")
-                return self.multi_jump_active and self.make_ai_move(ai_id) or True
-            logger.error("AI move failed")
-            return False
+            board_before = self.board.copy()
+            new_board, is_promotion, has_more_jumps = make_move(self.board, move, player)
+            if new_board is None:
+                log_to_json(
+                    f"Invalid AI move: {move}",
+                    level="ERROR",
+                    extra_data={"ai_id": ai_id, "move": move}
+                )
+                return False
+            self.board = new_board
+            board_after = self.board.copy()
+            reward = self.reward_calculator.get_reward(player_number=player_number)
+            ai.update(((from_row, from_col), (to_row, to_col)), reward, board_before.board, board_after.board)
+            is_jump = abs(to_row - from_row) == 2
+            self._handle_multi_jump(to_row, to_col, is_jump, is_promotion, player_number)
+            log_to_json(
+                f"AI move executed: {move}",
+                level="INFO",
+                extra_data={"ai_id": ai_id, "move": move}
+            )
+            return True
         except Exception as e:
-            logger.error(f"Error in AI move (AI ID: {ai_id}): {e}")
+            log_to_json(
+                f"Error in AI move for {ai_id}: {str(e)}",
+                level="ERROR",
+                extra_data={"ai_id": ai_id, "move": move if 'move' in locals() else None}
+            )
             return False
 
     def _get_ai_valid_moves(self, ai):
-        """دریافت حرکت‌های معتبر برای AI."""
+        """Gets valid moves for the AI."""
+        player = 1 if not self.turn else -1
         if self.multi_jump_active and self.selected:
-            valid_moves = self.get_valid_moves(*self.selected)
-            valid_moves = {(self.selected[0], self.selected[1], move[2], move[3]): skipped for move, skipped in valid_moves.items() if skipped}
-        else:
-            valid_moves = ai.get_valid_moves(self.board.board)
-        return valid_moves
+            return get_piece_moves(self.board, *self.selected, player)
+        return ai.get_valid_moves(self.board.board)
 
     def select(self, row, col):
-        """انتخاب یک مهره."""
+        """Selects a piece for movement."""
         try:
+            if self.paused or not self.game_started:
+                log_to_json(
+                    "Cannot select piece while paused or game not started",
+                    level="DEBUG",
+                    extra_data={"paused": self.paused, "game_started": self.game_started}
+                )
+                return False
             piece = self.board.board[row, col]
-            if piece != 0 and ((piece > 0 and not self.turn) or (piece < 0 and self.turn)):
-                valid_moves = self.get_valid_moves(row, col)
-                self.valid_moves = {(move[2], move[3]): skipped for move, skipped in valid_moves.items()}
+            player = 1 if not self.turn else -1
+            if piece != 0 and piece * player > 0:
+                valid_moves = get_piece_moves(self.board, row, col, player)
                 if valid_moves:
                     self.selected = (row, col)
-                    logger.debug(f"Selected piece at ({row}, {col})")
+                    self.valid_moves = {(to_row, to_col): skipped for (to_row, to_col), skipped in valid_moves.items()}
+                    logger.debug(f"Selected piece at ({row}, {col}) with valid moves: {self.valid_moves}")
                     return True
-            logger.debug(f"Invalid selection at ({row}, {col})")
+                logger.debug(f"No valid moves for piece at ({row}, {col})")
+            else:
+                logger.debug(f"Invalid selection at ({row}, {col}): piece={piece}, player={player}")
             return False
         except Exception as e:
             logger.error(f"Error selecting piece at ({row}, {col}): {e}")
+            log_to_json(f"Error selecting piece at ({row}, {col}): {str(e)}", level="ERROR",
+                        extra_data={"row": row, "col": col})
             return False
 
     def _move(self, row, col):
-        """انجام حرکت."""
+        """Performs a move."""
         try:
+            if self.paused or not self.game_started:
+                log_to_json(
+                    "Cannot move while paused or game not started",
+                    level="DEBUG",
+                    extra_data={"paused": self.paused, "game_started": self.game_started}
+                )
+                return False
             if self.selected and (row, col) in self.valid_moves:
                 start_row, start_col = self.selected
-                piece = self.board.board[start_row, start_col]
-                player_number = 2 if piece < 0 else 1
-
-                self.board.board[start_row, start_col] = 0
-                self.board.board[row, col] = piece
-                skipped = self.valid_moves[(row, col)]
-                is_capture = bool(skipped)
-
-                for skip_row, skip_col in skipped:
-                    self.board.board[skip_row, skip_col] = 0
-
-                is_promotion = self._handle_promotion(piece, row, col, player_number)
-                self._update_move_counters(player_number, is_capture, is_promotion)
-                self._handle_multi_jump(row, col, skipped)
-
-                self.board.player_1_left = sum(1 for row in self.board.board.flat if row > 0)
-                self.board.player_2_left = sum(1 for row in self.board.board.flat if row < 0)
-                logger.info(f"Move to ({row}, {col}) successful, player_1_left={self.board.player_1_left}, player_2_left={self.board.player_2_left}")
+                player_number = 1 if not self.turn else 2
+                player = 1 if player_number == 1 else -1
+                move = (start_row, start_col, row, col)
+                self.history.save_state(self)
+                new_board, is_promotion, has_more_jumps = make_move(self.board, move, player_number)
+                if new_board is None:
+                    logger.error(f"Invalid move to ({row}, {col})")
+                    return False
+                self.board = new_board
+                is_jump = abs(row - start_row) == 2
+                self._update_move_counters(player_number, is_jump, is_promotion)
+                self._handle_multi_jump(row, col, is_jump, is_promotion, player_number)
+                logger.info(
+                    f"Move to ({row}, {col}) successful, player_1_left={self.board.player_1_left}, player_2_left={self.board.player_2_left}"
+                )
                 return True
             logger.error(f"Invalid move to ({row}, {col})")
+            return False
+        except CheckersError as e:
+            logger.error(f"CheckersError moving to ({row}, {col}): {e}")
             return False
         except Exception as e:
             logger.error(f"Error moving to ({row}, {col}): {e}")
             return False
 
-    def _handle_promotion(self, piece, row, col, player_number):
-        """مدیریت ارتقاء مهره به شاه."""
-        is_promotion = False
-        if piece == 1 and row == 0 and not self.turn:
-            self.board.board[row, col] = 2
-            is_promotion = True
-            logger.info(f"Promoted to king at ({row}, {col})")
-        elif piece == -1 and row == self.board_size - 1 and self.turn:
-            self.board.board[row, col] = -2
-            is_promotion = True
-            logger.info(f"Promoted to king at ({row}, {col})")
-        return is_promotion
-
     def _update_move_counters(self, player_number, is_capture, is_promotion):
-        """به‌روزرسانی شمارشگرهای حرکت."""
+        """Updates move counters."""
         self.total_moves[player_number] += 1
-        self.consecutive_uniform_moves[player_number] = 0 if is_capture or is_promotion else self.consecutive_uniform_moves[player_number] + 1
+        self.consecutive_uniform_moves[player_number] = 0 if is_capture or is_promotion else \
+            self.consecutive_uniform_moves[player_number] + 1
         self.no_capture_or_king_moves = 0 if is_capture or is_promotion else self.no_capture_or_king_moves + 1
 
-    def _handle_multi_jump(self, row, col, skipped):
-        """مدیریت پرش‌های چندگانه."""
-        self.valid_moves = {}
-        self.multi_jump_active = False
-        if skipped:
+    def _handle_multi_jump(self, row, col, is_jump, is_promotion, player_number):
+        """Handles multi-jump logic."""
+        try:
+            self.valid_moves = {}
+            self.multi_jump_active = False
+            player = 1 if player_number == 1 else -1
+            if not is_jump:
+                self.selected = None
+                self.turn = not self.turn
+                log_to_json(
+                    f"Simple move completed, turn changed to {self.turn}",
+                    level="INFO",
+                    extra_data={"position": (row, col)}
+                )
+                return
             self.selected = (row, col)
-            next_moves = self.get_valid_moves(row, col)
-            next_jumps = {(move[2], move[3]): skipped for move, skipped in next_moves.items() if skipped}
+            if is_promotion:
+                self.selected = None
+                self.turn = not self.turn
+                log_to_json(
+                    f"Piece promoted to king at ({row}, {col}), turn changed to {self.turn}",
+                    level="INFO",
+                    extra_data={"player_number": player_number}
+                )
+                return
+            next_jumps = get_piece_moves(self.board, row, col, player)
             if next_jumps:
-                self.valid_moves = next_jumps
+                self.valid_moves = {(m[2], m[3]): [] for m in next_jumps}
                 self.multi_jump_active = True
-                logger.info(f"Multi-jump active, next jumps: {next_jumps}")
+                log_to_json(
+                    f"Multi-jump active, next jumps: {next_jumps}",
+                    level="INFO",
+                    extra_data={"position": (row, col)}
+                )
             else:
                 self.selected = None
                 self.turn = not self.turn
-                logger.info(f"No more jumps, turn changed to {self.turn}")
-        else:
+                log_to_json(
+                    f"No more jumps available, turn changed to {self.turn}",
+                    level="INFO",
+                    extra_data={"position": (row, col)}
+                )
+        except Exception as e:
+            log_to_json(
+                f"Error in _handle_multi_jump: {str(e)}",
+                level="ERROR",
+                extra_data={"row": row, "col": col, "board": self.board.board.tolist()}
+            )
             self.selected = None
             self.turn = not self.turn
-            logger.info(f"Simple move, turn changed to {self.turn}")
 
     def get_valid_moves(self, row, col):
-        """محاسبه حرکت‌های مجاز."""
+        """Calculates valid moves for a piece."""
         try:
-            piece = self.board.board[row, col]
-            if piece == 0:
-                logger.debug(f"No piece at ({row}, {col})")
+            if self.paused or not self.game_started:
+                log_to_json(
+                    "Cannot get valid moves while paused or game not started",
+                    level="DEBUG",
+                    extra_data={"paused": self.paused, "game_started": self.game_started}
+                )
                 return {}
-
-            player_number = 2 if piece < 0 else 1
-            is_king = abs(piece) == 2
-            all_jumps = self._get_all_jumps(player_number, is_king)
-            if all_jumps:
-                logger.debug(f"Jumps available: {all_jumps}")
-                return all_jumps
-
-            moves = {}
-            directions = self.get_piece_directions(piece, is_king)
-            for dr, dc in directions:
-                new_row, new_col = row + dr, col + dc
-                if 0 <= new_row < self.board_size and 0 <= new_col < self.board_size and self.board.board[new_row, new_col] == 0:
-                    moves[(row, col, new_row, new_col)] = []
-            logger.debug(f"Moves: {moves}")
-            return moves
+            player = 1 if not self.turn else -1
+            moves = get_piece_moves(self.board, row, col, player)
+            return {(m[0], m[1], m[2], m[3]): [] for m in moves}
         except Exception as e:
-            logger.error(f"Error getting valid moves for ({row}, {col}): {e}")
+            log_to_json(
+                f"Error in get_valid_moves: {str(e)}",
+                level="ERROR",
+                extra_data={"row": row, "col": col, "board": self.board.board.tolist()}
+            )
             return {}
-
-    def _get_all_jumps(self, player_number, is_king):
-        """دریافت تمام پرش‌های ممکن."""
-        all_jumps = {}
-        for r in range(self.board_size):
-            for c in range(self.board_size):
-                p = self.board.board[r, c]
-                if p != 0 and ((p < 0 and player_number == 2) or (p > 0 and player_number == 1)):
-                    jumps = self._get_jumps_recursive(r, c, p, player_number, is_king, [], set())
-                    for (end_row, end_col), skipped in jumps.items():
-                        all_jumps[(r, c, end_row, end_col)] = skipped
-        return all_jumps
-
-    def _get_jumps_recursive(self, row, col, piece, player_number, is_king, skipped, visited):
-        """محاسبه بازگشتی پرش‌ها."""
-        try:
-            jumps = {}
-            visited.add((row, col))
-            directions = self.get_piece_directions(piece, is_king)
-
-            for dr, dc in directions:
-                new_row, new_col = row + dr, col + dc
-                jump_row, jump_col = new_row + dr, new_col + dc
-                if 0 <= new_row < self.board_size and 0 <= new_col < self.board_size and \
-                        0 <= jump_row < self.board_size and 0 <= jump_col < self.board_size:
-                    target = self.board.board[new_row, new_col]
-                    jump_target = self.board.board[jump_row, jump_col]
-                    if target != 0 and ((target < 0) != (piece < 0)) and jump_target == 0:
-                        new_skipped = skipped + [(new_row, new_col)]
-                        becomes_king = (not is_king and
-                                        ((player_number == 1 and jump_row == 0) or
-                                         (player_number == 2 and jump_row == self.board_size - 1)))
-                        jumps[(jump_row, jump_col)] = new_skipped
-                        if not becomes_king:
-                            original_piece = self.board.board[row, col]
-                            original_target = self.board.board[new_row, new_col]
-                            self.board.board[row, col] = 0
-                            self.board.board[new_row, new_col] = 0
-                            self.board.board[jump_row, jump_col] = piece
-                            next_jumps = self._get_jumps_recursive(
-                                jump_row, jump_col, piece, player_number, is_king, new_skipped, visited.copy()
-                            )
-                            self.board.board[row, col] = original_piece
-                            self.board.board[new_row, new_col] = original_target
-                            self.board.board[jump_row, jump_col] = 0
-                            jumps.update(next_jumps)
-            return jumps
-        except Exception as e:
-            logger.error(f"Error in recursive jumps for ({row}, {col}): {e}")
-            return {}
-
-    @staticmethod
-    def get_piece_directions(piece, is_king):
-        """تعیین جهت‌های حرکت."""
-        try:
-            is_player_2 = piece < 0
-            player_number = 2 if is_player_2 else 1
-            if not is_king and player_number == 1:
-                return [(-1, -1), (-1, 1)]
-            elif not is_king and player_number == 2:
-                return [(1, -1), (1, 1)]
-            elif is_king:
-                return [(-1, -1), (-1, 1), (1, -1), (1, 1)]
-            return []
-        except Exception as e:
-            logger.error(f"Error getting piece directions: {e}")
-            return []
 
     def update_game(self):
-        """به‌روزرسانی وضعیت بازی."""
+        """Updates the game state."""
         if not self.paused:
             try:
                 self._update_game()
             except Exception as e:
                 logger.error(f"Error updating game: {e}")
+                log_to_json(
+                    f"Error updating game: {str(e)}",
+                    level="ERROR",
+                    extra_data={"game_started": self.game_started, "game_over": self.game_over}
+                )
 
     def _update_game(self):
-        """به‌روزرسانی داخلی وضعیت بازی."""
+        """Internal game state update."""
         if self.game_started and not self.game_over:
             self.timer.update(self.turn, self.game_started, self.game_over)
             self.check_winner()
 
     def check_winner(self):
-        """بررسی برنده یا تساوی."""
+        """Checks if the game has a winner."""
         try:
-            if not self.game_started or self.game_over:
-                return
-
-            current_player_moves = self._has_valid_moves()
-            player_number = 2 if self.turn else 1
-
-            if self.consecutive_uniform_moves[1] >= self.max_uniform_moves and self.consecutive_uniform_moves[2] >= self.max_uniform_moves:
-                self._end_game(None)
-            elif self.total_moves[1] >= self.max_total_moves and self.total_moves[2] >= self.max_total_moves:
-                self._end_game(None)
-            elif self.no_capture_or_king_moves >= self.max_no_capture_moves:
-                self._end_game(None)
-            elif not current_player_moves:
-                self._end_game(not self.turn)
-            elif self.settings.use_timer:
-                self._check_timer()
+            if self.game_over:
+                return self.winner
+            player = 1 if not self.turn else -1
+            for row in range(self.board.board_size):
+                for col in range(self.board.board_size):
+                    piece = self.board.board[row, col]
+                    if piece != 0 and piece * player > 0:
+                        moves = get_piece_moves(self.board, row, col, player)
+                        if moves:
+                            return None  # بازی ادامه دارد
+            self.game_over = True
+            self.winner = not self.turn  # برنده بازیکن دیگر است
+            log_to_json(
+                f"Game over, winner: {'black' if self.winner else 'white'}",
+                level="INFO"
+            )
+            return self.winner
         except Exception as e:
-            logger.error(f"Error checking winner: {e}")
+            log_to_json(
+                f"Error checking winner: {str(e)}",
+                level="ERROR"
+            )
+            return None
 
     def _has_valid_moves(self):
-        """بررسی وجود حرکت‌های معتبر."""
-        player_number = 2 if self.turn else 1
-        for row in range(self.board_size):
-            for col in range(self.board_size):
-                piece = self.board.board[row, col]
-                if piece != 0 and ((piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)):
-                    if self.get_valid_moves(row, col):
+        """Checks if the current player has valid moves."""
+        player = 1 if not self.turn else -1
+        for row in range(self.board.board_size):
+            for col in range(self.board.board_size):
+                if (row + col) % 2 == 1 and self.board.board[row, col] * player > 0:
+                    if get_piece_moves(self.board, row, col, player):
                         return True
         return False
 
     def _check_timer(self):
-        """بررسی تایمر بازی."""
+        """Checks the game timer."""
         player_1_time = self.timer.get_current_time(False)
         player_2_time = self.timer.get_current_time(True)
         if player_1_time <= 0:
@@ -552,7 +598,7 @@ class Game:
             self.time_up = True
 
     def _end_game(self, winner):
-        """پایان بازی و به‌روزرسانی امتیازات."""
+        """Ends the game and updates scores."""
         self.winner = winner
         self.game_over = True
         if not self.score_updated:
@@ -563,29 +609,34 @@ class Game:
                 else:
                     self.player_2_wins += 1
             save_stats({"player_1_wins": self.player_1_wins, "player_2_wins": self.player_2_wins})
-            logger.info(f"Game ended, winner: {self.winner}")
+            logger.autobus.info(f"Game ended, winner: {self.winner}")
+            log_to_json(
+                f"Game ended, winner: {self.winner}",
+                level="INFO",
+                extra_data={"player_1_wins": self.player_1_wins, "player_2_wins": self.player_2_wins}
+            )
 
     def handle_click(self, pos):
-        """مدیریت کلیک کاربر."""
+        """Handles user clicks."""
         if self.paused:
+            log_to_json("Cannot handle click while paused", level="DEBUG", extra_data={"paused": self.paused})
             return False
         try:
             x, y = pos
             self.click_log.append((x, y))
             if len(self.click_log) > 50:
                 self.click_log.pop(0)
-
-            if x < self.board_width and self.game_started and not self.game_over and self._is_human_turn():
-                row = (y - self.menu_height - self.border_thickness) // self.square_size
-                col = (x - self.border_thickness) // self.square_size
-                if not (0 <= row < self.board_size and 0 <= col < self.board_size):
+            if x < self.config.get("board_width") and self.game_started and not self.game_over and self._is_human_turn():
+                row = (y - self.config.get("menu_height") - self.config.get("border_thickness")) // self.config.get("square_size")
+                col = (x - self.config.get("border_thickness")) // self.config.get("square_size")
+                if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
                     return False
                 if self.selected and (row, col) in self.valid_moves:
                     self.history.save_state(self)
                     return self._move(row, col)
                 result = self.select(row, col)
                 if not result and self.multi_jump_active and self.selected:
-                    self.valid_moves = self.get_valid_moves(*self.selected)
+                    self.valid_moves = {(m[2], m[3]): [] for m in get_piece_moves(self.board, *self.selected, 1 if not self.turn else -1)}
                 return result
             if self.game_over:
                 self.selected = None
@@ -594,58 +645,68 @@ class Game:
             return False
         except Exception as e:
             logger.error(f"Error handling click at {pos}: {e}")
+            log_to_json(f"Error handling click at {pos}: {str(e)}", level="ERROR", extra_data={"pos": pos})
             return False
 
     def _is_human_turn(self):
-        """بررسی نوبت بازیکن انسانی."""
-        return self.settings.game_mode == "human_vs_human" or (self.settings.game_mode == "human_vs_ai" and not self.turn)
+        """Checks if it's a human player's turn."""
+        return self.settings.game_mode == "human_vs_human" or (
+            self.settings.game_mode == "human_vs_ai" and not self.turn)
 
     def draw_valid_moves(self):
-        """نمایش حرکت‌های معتبر."""
+        """Draws valid moves on the board."""
         try:
-            drawn_moves = set()
+            if not self.game_started or self.paused:
+                return
             for move in self.valid_moves:
-                row, col = move[2:4] if len(move) == 4 else move
-                if (row, col) not in drawn_moves:
-                    drawn_moves.add((row, col))
-                    logger.debug(f"Drawing move at ({row}, {col})")
+                row, col = move
+                if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
+                    log_to_json(
+                        f"Invalid move position: ({row}, {col})",
+                        level="ERROR",
+                        extra_data={"move": move}
+                    )
+                    continue
+                log_to_json(f"Drawing move at ({row}, {col})", level="DEBUG", extra_data={"move": move})
         except Exception as e:
-            logger.error(f"Error drawing valid moves: {e}")
+            log_to_json(
+                f"Error in draw_valid_moves: {str(e)}",
+                level="ERROR",
+                extra_data={"valid_moves": list(self.valid_moves.keys())}
+            )
 
     def change_turn(self):
-        """تغییر نوبت."""
+        """Changes the current turn."""
         try:
             self.selected = None
             self.valid_moves = {}
             self.turn = not self.turn
             self.check_winner()
             logger.info(f"Turn changed to: {self.turn}")
+            log_to_json(f"Turn changed to: {self.turn}", level="INFO")
         except Exception as e:
             logger.error(f"Error changing turn: {e}")
+            log_to_json(f"Error changing turn: {str(e)}", level="ERROR")
 
     def get_hint(self):
-        """دریافت پیشنهاد حرکت."""
+        """Returns a move suggestion."""
         try:
-            if self.game_over or (not self.turn and not self.hint_enabled_p1) or (self.turn and not self.hint_enabled_p2):
+            if self.game_over or (not self.turn and not self.config.get("hint_enabled_p1")) or (
+                    self.turn and not self.config.get("hint_enabled_p2")):
                 return None
             ai_id = "ai_1" if not self.turn else "ai_2"
             ai = self.ai_players.get(ai_id)
             if ai and self.settings.game_mode in ["human_vs_human", "human_vs_ai"]:
-                for row in range(self.board_size):
-                    for col in range(self.board_size):
-                        piece = self.board.board[row, col]
-                        if piece != 0 and (piece < 0) == self.turn:
-                            moves = self.get_valid_moves(row, col)
-                            if moves:
-                                move = getattr(ai, 'suggest_move', ai.get_move)(self.board.board)
-                                if move:
-                                    from_row, from_col, to_row, to_col = move
-                                    return ((row, col), (to_row, to_col))
+                move = getattr(ai, 'suggest_move', ai.get_move)(self.board.board)
+                if move and len(move) == 4:
+                    from_row, from_col, to_row, to_col = move
+                    return (from_row, from_col), (to_row, to_col)
             return None
         except Exception as e:
             logger.error(f"Error getting hint: {e}")
+            log_to_json(f"Error getting hint: {str(e)}", level="ERROR")
             return None
 
     def save_game_state(self):
-        """ذخیره وضعیت بازی."""
+        """Saves the current game state."""
         self.history.save_state(self)
