@@ -14,7 +14,7 @@ from .utils import CheckersError
 # Load configuration
 config = load_config()
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level", "ERROR")),
+    level=getattr(logging, config.get("logging_level", "DEBUG")),
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler('game.log'),
@@ -105,6 +105,7 @@ class Game:
     def __init__(self, settings=None, interface=None):
         try:
             self.config = load_config()
+            self.hovered_piece = None  # مهره‌ای که ماوس روی آن قرار دارد
             if isinstance(settings, GameSettings):
                 self.settings = settings
             else:
@@ -166,6 +167,35 @@ class Game:
         except Exception as e:
             logger.error(f"Error initializing game: {e}")
             raise
+
+    def check_mouse_hover(self, pos):
+        """Checks if the mouse is hovering over a piece and returns valid moves."""
+        try:
+            if self.paused or not self.game_started or self.selected is not None:  # شرط جدید
+                return None
+            x, y = pos
+            if x < self.config.get("board_width") and self._is_human_turn():
+                row = (y - self.config.get("menu_height") - self.config.get("border_thickness")) // self.config.get(
+                    "square_size")
+                col = (x - self.config.get("border_thickness")) // self.config.get("square_size")
+                if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
+                    return None
+                piece = self.board.board[row, col]
+                player = 1 if not self.turn else -1
+                if piece != 0 and piece * player > 0:
+                    valid_moves = get_piece_moves(self.board, row, col, player)
+                    if valid_moves:
+                        self.hovered_piece = (row, col)
+                        return valid_moves
+                self.hovered_piece = None
+            return None
+        except Exception as e:
+            log_to_json(
+                f"Error in check_mouse_hover: {str(e)}",
+                level="ERROR",
+                extra_data={"pos": pos}
+            )
+            return None
 
     def _init_fonts(self):
         """Initializes fonts for the game."""
@@ -548,6 +578,10 @@ class Game:
         if self.game_started and not self.game_over:
             self.timer.update(self.turn, self.game_started, self.game_over)
             self.check_winner()
+            # حذف رندر حرکات پویا، چون در draw_game انجام می‌شود
+            # mouse_pos = pygame.mouse.get_pos()
+            # hovered_moves = self.check_mouse_hover(mouse_pos)
+            # self.draw_valid_moves(hovered_moves)
 
     def check_winner(self):
         """Checks if the game has a winner."""
@@ -653,26 +687,60 @@ class Game:
         return self.settings.game_mode == "human_vs_human" or (
             self.settings.game_mode == "human_vs_ai" and not self.turn)
 
-    def draw_valid_moves(self):
-        """Draws valid moves on the board."""
+    def draw_valid_moves(self, hovered_moves=None):
+        """Draws valid moves on the board for selected piece and hovered piece."""
         try:
             if not self.game_started or self.paused:
                 return
-            for move in self.valid_moves:
-                row, col = move
+
+            # تنظیمات گرافیکی
+            square_size = self.config.get("square_size", 80)
+            border_thickness = self.config.get("border_thickness", 10)
+            menu_height = self.config.get("menu_height", 100)
+            valid_move_color = (0, 255, 0, 128)  # سبز نیمه‌شفاف برای حرکات معتبر
+            circle_radius = square_size // 4
+
+            # رسم حرکات معتبر برای مهره انتخاب‌شده (ثابت)
+            for (row, col), _ in self.valid_moves.items():
                 if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
                     log_to_json(
                         f"Invalid move position: ({row}, {col})",
                         level="ERROR",
-                        extra_data={"move": move}
+                        extra_data={"move": (row, col)}
                     )
                     continue
-                log_to_json(f"Drawing move at ({row}, {col})", level="DEBUG", extra_data={"move": move})
+                # محاسبه مختصات مرکز خانه
+                x = border_thickness + col * square_size + square_size // 2
+                y = menu_height + border_thickness + row * square_size + square_size // 2
+                # رسم دایره با استفاده از Surface برای پشتیبانی از شفافیت
+                surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
+                pygame.draw.circle(surface, valid_move_color, (square_size // 2, square_size // 2), circle_radius)
+                self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
+                log_to_json(f"Drawing valid move at ({row}, {col})", level="DEBUG", extra_data={"move": (row, col)})
+
+            # رسم حرکات معتبر برای مهره‌ای که ماوس روی آن است (پویا)
+            if hovered_moves:
+                for (row, col), _ in hovered_moves.items():
+                    if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
+                        log_to_json(
+                            f"Invalid hovered move position: ({row}, {col})",
+                            level="ERROR",
+                            extra_data={"move": (row, col)}
+                        )
+                        continue
+                    x = border_thickness + col * square_size + square_size // 2
+                    y = menu_height + border_thickness + row * square_size + square_size // 2
+                    surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
+                    pygame.draw.circle(surface, valid_move_color, (square_size // 2, square_size // 2), circle_radius)
+                    self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
+                    log_to_json(f"Drawing hovered move at ({row}, {col})", level="DEBUG",
+                                extra_data={"move": (row, col)})
+
         except Exception as e:
             log_to_json(
                 f"Error in draw_valid_moves: {str(e)}",
                 level="ERROR",
-                extra_data={"valid_moves": list(self.valid_moves.keys())}
+                extra_data={"valid_moves": list(self.valid_moves.keys()), "hovered_moves": hovered_moves}
             )
 
     def change_turn(self):

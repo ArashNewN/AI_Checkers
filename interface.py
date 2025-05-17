@@ -446,7 +446,10 @@ class GameInterface:
                 piece_value = self.game.board.board[row, col]
                 if piece_value != 0:
                     self.draw_piece(self.screen, piece_value, row, col)
-        self.game.draw_valid_moves()
+        # بررسی موقعیت ماوس و رندر حرکات پویا
+        mouse_pos = pygame.mouse.get_pos()
+        hovered_moves = self.game.check_mouse_hover(mouse_pos)
+        self.game.draw_valid_moves(hovered_moves)
         self.draw_side_panel()
         pygame.draw.rect(self.screen, self.LIGHT_GRAY, (0, self.WINDOW_HEIGHT - 30, self.WINDOW_WIDTH, 30))
         footer_text = self.small_font.render(LANGUAGES[self.settings.language]["footer"], True, self.BLACK)
