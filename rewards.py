@@ -220,7 +220,7 @@ class RewardCalculator:
             if skipped:  # If move is a jump
                 move = (row, col, to_row, to_col)
                 try:
-                    new_board = make_move(temp_board, move, player)
+                    new_board = make_move(temp_board, move)
                     if new_board:
                         multi_jump_count += 1
                         multi_jump_count += self._count_multi_jumps(to_row, to_col, visited.copy(), player)

@@ -1,5 +1,7 @@
+#windows.py
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
+from typing import Literal
 from .settings import GameSettings
 from .constants import LANGUAGES
 from .config import save_config, load_config, load_ai_config, save_ai_config, load_ai_specific_config, \
@@ -18,12 +20,11 @@ log_dir.mkdir(parents=True, exist_ok=True)
 
 # تنظیم لاگ‌گیری
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     filename=Path(__file__).parent.parent / "logs" / "app.log",
-    encoding="utf-8",  # اضافه کردن کدگذاری UTF-8
+    encoding="utf-8",
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
 
 # مسیر پروژه
 project_dir = Path(__file__).parent.parent
@@ -46,18 +47,18 @@ class BaseWindow:
         self.settings = interface.settings if interface else None
         self.root = root
         self.window = None
+        self.tk = None  # تعریف tk در __init__
         self.is_open = False
         self.config = load_config()
-        # تعریف project_dir بدون وابستگی به pth_dir
-        self.project_dir = Path(__file__).parent.parent  # مسیر ریشه پروژه
-        self.pth_dir = self.project_dir / "pth"  # مسیر پیش‌فرض برای pth
+        self.project_dir = Path(__file__).parent.parent
+        self.pth_dir = self.project_dir / "pth"
         configure_styles()
 
     def create_window(self, title, width=None, height=None):
         if self.is_open or self.window:
             return
         self.window = tk.Toplevel(self.root) if self.root else tk.Toplevel()
-        self.tk = self.window.tk
+        self.tk = self.window
         self.window.title(title)
         width = width or self.config.get("settings_window_width", 400)
         height = height or self.config.get("settings_window_height", 300)
@@ -107,6 +108,71 @@ class SettingsWindow(BaseWindow):
         self.ai_types = ["none"]
         self.entries = {}
         self.load_ai_config()
+        # تعریف متغیرهای نمونه‌ای در __init__
+        self.ai_list = None
+        self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
+        self.ai_vs_ai_subframe = None
+        self.ai_vs_ai_var = tk.StringVar(value=self.temp_settings.ai_vs_ai_mode)
+        self.al1_name_var = tk.StringVar(value=self.temp_settings.al1_name)
+        self.al2_name_var = tk.StringVar(value=self.temp_settings.al2_name)
+        self.b1_color_button = None
+        self.b2_color_button = None
+        self.board_color_1_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.board_color_1))
+        self.board_color_2_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.board_color_2))
+        self.hmh_entry = None
+        self.hmh_var = tk.IntVar(value=self.temp_settings.repeat_hands)
+        self.lang_var = tk.StringVar(value=self.temp_settings.language)
+        self.p1_color_button = None
+        self.p2_color_button = None
+        self.piece_style_var = tk.StringVar(value=self.temp_settings.piece_style)
+        self.play_with_var = tk.StringVar(value=self.temp_settings.game_mode)
+        self.player_1_ability_menu = None
+        self.player_1_ability_var = tk.StringVar(value="medium")
+        self.player_1_ai_menu = None
+        self.player_1_ai_type_var = tk.StringVar(value="none")
+        self.player_1_color_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.player_1_color))
+        self.player_1_name_var = tk.StringVar(value=self.temp_settings.player_1_name)
+        self.player_2_ability_menu = None
+        self.player_2_ability_var = tk.StringVar(value="medium")
+        self.player_2_ai_menu = None
+        self.player_2_ai_type_var = tk.StringVar(value="none")
+        self.player_2_color_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.player_2_color))
+        self.player_2_name_var = tk.StringVar(value=self.temp_settings.player_2_name)
+        self.preview_canvas = None
+        self.repeat_hands_frame = None
+        self.repeat_once_rb = None
+        self.repeat_until_rb = None
+        self.sound_var = tk.BooleanVar(value=self.temp_settings.sound_enabled)
+        self.start_var = tk.StringVar(value="player_1" if self.temp_settings.player_starts else "player_2")
+        self.timer_combo = None
+        self.timer_duration_frame = None
+        self.timer_var = tk.StringVar(value="with_timer" if self.temp_settings.use_timer else "no_timer")
+        self.timer_var_duration = tk.IntVar(value=self.temp_settings.game_time)
+        # متغیرهای تنظیمات پیشرفته
+        self.player1_learning_rate_var = tk.DoubleVar(value=0.001)
+        self.player1_gamma_var = tk.DoubleVar(value=0.99)
+        self.player1_batch_size_var = tk.IntVar(value=64)
+        self.player1_memory_size_var = tk.IntVar(value=10000)
+        self.player1_piece_difference_var = tk.DoubleVar(value=1.0)
+        self.player1_king_bonus_var = tk.DoubleVar(value=2.0)
+        self.player1_position_bonus_var = tk.DoubleVar(value=0.1)
+        self.player1_capture_bonus_var = tk.DoubleVar(value=1.5)
+        self.player1_multi_jump_bonus_var = tk.DoubleVar(value=0.5)
+        self.player1_king_capture_bonus_var = tk.DoubleVar(value=2.5)
+        self.player1_mobility_bonus_var = tk.DoubleVar(value=0.2)
+        self.player1_safety_penalty_var = tk.DoubleVar(value=-0.1)
+        self.player2_learning_rate_var = tk.DoubleVar(value=0.001)
+        self.player2_gamma_var = tk.DoubleVar(value=0.99)
+        self.player2_batch_size_var = tk.IntVar(value=64)
+        self.player2_memory_size_var = tk.IntVar(value=10000)
+        self.player2_piece_difference_var = tk.DoubleVar(value=1.0)
+        self.player2_king_bonus_var = tk.DoubleVar(value=2.0)
+        self.player2_position_bonus_var = tk.DoubleVar(value=0.1)
+        self.player2_capture_bonus_var = tk.DoubleVar(value=1.5)
+        self.player2_multi_jump_bonus_var = tk.DoubleVar(value=0.5)
+        self.player2_king_capture_bonus_var = tk.DoubleVar(value=2.5)
+        self.player2_mobility_bonus_var = tk.DoubleVar(value=0.2)
+        self.player2_safety_penalty_var = tk.DoubleVar(value=-0.1)
 
     def create_widgets(self):
         self.create_window(LANGUAGES[self.settings.language]["settings"],
@@ -124,7 +190,7 @@ class SettingsWindow(BaseWindow):
         button_frame = ttk.Frame(self.window, padding=10)
         button_frame.pack(fill="x")
 
-        side = "right" if self.settings.language == "fa" else "left"
+        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
         ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["save_changes"],
                    command=self.save, style="Custom.TButton").pack(side=side, padx=5)
         ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["close"],
@@ -143,7 +209,8 @@ class SettingsWindow(BaseWindow):
             "player_2": {"ai_type": "none", "ai_code": None, "ability_level": 5, "params": {}}
         })
 
-    def check_ai_module(self, ai_type):
+    @staticmethod
+    def check_ai_module(ai_type: str) -> bool:
         if ai_type == "none":
             return True
         ai_config = load_ai_config()
@@ -181,7 +248,7 @@ class SettingsWindow(BaseWindow):
             self._update_player_ai_config("player_2", "none")
             print(f"Reset player_2 AI to 'none' (was {self.player_2_ai_type_var.get()})")
 
-    def _update_player_ai_config(self, player, ai_type):
+    def _update_player_ai_config(self, player: str, ai_type: str):
         ai_config = load_ai_config()
         print(f"Updating {player} temp_settings to AI: {ai_type}")
 
@@ -284,7 +351,7 @@ class SettingsWindow(BaseWindow):
         player_1_ai_type = self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none")
         if player_1_ai_type not in self.ai_types:
             player_1_ai_type = "none"
-        self.player_1_ai_type_var = tk.StringVar(value=player_1_ai_type)
+        self.player_1_ai_type_var.set(player_1_ai_type)
         self.player_1_ai_menu = ttk.OptionMenu(player_1_container, self.player_1_ai_type_var,
                                                player_1_ai_type, *self.ai_types)
         self.player_1_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
@@ -301,8 +368,8 @@ class SettingsWindow(BaseWindow):
             9: "very_strong"
         }
         player_1_ability = self.temp_settings.ai_configs.get("player_1", {}).get("ability_level", 5)
-        self.player_1_ability_var = tk.StringVar(
-            value=LANGUAGES[self.settings.language][ability_mapping.get(player_1_ability, "medium")])
+        self.player_1_ability_var.set(
+            LANGUAGES[self.settings.language][ability_mapping.get(player_1_ability, "medium")])
         self.player_1_ability_menu = ttk.OptionMenu(
             player_1_container, self.player_1_ability_var, self.player_1_ability_var.get(),
             LANGUAGES[self.settings.language]["very_weak"],
@@ -321,7 +388,7 @@ class SettingsWindow(BaseWindow):
         player_2_ai_type = self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")
         if player_2_ai_type not in self.ai_types:
             player_2_ai_type = "none"
-        self.player_2_ai_type_var = tk.StringVar(value=player_2_ai_type)
+        self.player_2_ai_type_var.set(player_2_ai_type)
         self.player_2_ai_menu = ttk.OptionMenu(player_2_container, self.player_2_ai_type_var,
                                                player_2_ai_type, *self.ai_types)
         self.player_2_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
@@ -331,8 +398,8 @@ class SettingsWindow(BaseWindow):
 
         ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
         player_2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
-        self.player_2_ability_var = tk.StringVar(
-            value=LANGUAGES[self.settings.language][ability_mapping.get(player_2_ability, "medium")])
+        self.player_2_ability_var.set(
+            LANGUAGES[self.settings.language][ability_mapping.get(player_2_ability, "medium")])
         self.player_2_ability_menu = ttk.OptionMenu(
             player_2_container, self.player_2_ability_var, self.player_2_ability_var.get(),
             LANGUAGES[self.settings.language]["very_weak"],
@@ -348,7 +415,6 @@ class SettingsWindow(BaseWindow):
         pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
         pause_frame.pack(fill="x", pady=5)
         ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
-        self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
         self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time", self.ai_pause_var.get()))
         ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10).pack(anchor="w", pady=5)
 
@@ -381,7 +447,7 @@ class SettingsWindow(BaseWindow):
             "player_2": {"ai_type": "none", "ability_level": 5, "training_params": {}, "reward_weights": {}}
         })
 
-    def update_ability_levels(self, player):
+    def update_ability_levels(self, player: str):
         ability_levels = {
             LANGUAGES[self.settings.language]["very_weak"]: 1,
             LANGUAGES[self.settings.language]["weak"]: 3,
@@ -396,7 +462,7 @@ class SettingsWindow(BaseWindow):
             selected_level = self.player_2_ability_var.get()
             self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
 
-    def update_temp_settings(self, key, value):
+    def update_temp_settings(self, key: str, value):
         if key == "language":
             self.temp_settings.language = value
         elif key == "game_mode":
@@ -465,7 +531,6 @@ class SettingsWindow(BaseWindow):
 
         lang_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["language"], padding=10)
         lang_frame.pack(fill="x", pady=5)
-        self.lang_var = tk.StringVar(value=self.temp_settings.language)
         self.lang_var.trace("w", lambda *args: self.update_temp_settings("language", self.lang_var.get()))
         lang_menu = ttk.OptionMenu(lang_frame, self.lang_var, self.temp_settings.language, "en", "fa")
         lang_menu.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
@@ -474,7 +539,6 @@ class SettingsWindow(BaseWindow):
 
         play_with_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["play_with"], padding=10)
         play_with_frame.pack(fill="x", pady=5)
-        self.play_with_var = tk.StringVar(value=self.temp_settings.game_mode)
         self.play_with_var.trace("w", lambda *args: self.update_temp_settings("game_mode", self.play_with_var.get()))
         ttk.Radiobutton(play_with_frame, text=LANGUAGES[self.settings.language]["human_vs_human"],
                         variable=self.play_with_var, value="human_vs_human",
@@ -488,7 +552,6 @@ class SettingsWindow(BaseWindow):
 
         self.ai_vs_ai_subframe = ttk.Frame(game_frame, padding=10)
         self.ai_vs_ai_subframe.pack(fill="x", pady=5)
-        self.ai_vs_ai_var = tk.StringVar(value=self.temp_settings.ai_vs_ai_mode)
         self.ai_vs_ai_var.trace("w", lambda *args: self.update_temp_settings("ai_vs_ai_mode", self.ai_vs_ai_var.get()))
         self.repeat_once_rb = ttk.Radiobutton(self.ai_vs_ai_subframe,
                                               text=LANGUAGES[self.settings.language]["only_once"],
@@ -509,7 +572,6 @@ class SettingsWindow(BaseWindow):
             self.repeat_until_rb.config(state="normal")
 
         self.repeat_hands_frame = ttk.Frame(self.ai_vs_ai_subframe)
-        self.hmh_var = tk.IntVar(value=self.temp_settings.repeat_hands)
         self.hmh_var.trace("w", lambda *args: self.update_temp_settings("repeat_hands", self.hmh_var.get()))
         self.hmh_entry = ttk.Entry(self.repeat_hands_frame, textvariable=self.hmh_var, width=5)
         self.hmh_entry.pack(side="left", padx=5)
@@ -517,7 +579,6 @@ class SettingsWindow(BaseWindow):
 
         start_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["starting_player"], padding=10)
         start_frame.pack(fill="x", pady=5)
-        self.start_var = tk.StringVar(value="player_1" if self.temp_settings.player_starts else "player_2")
         self.start_var.trace("w", lambda *args: self.update_temp_settings("player_starts",
                                                                           self.start_var.get() == "player_1"))
         ttk.Radiobutton(start_frame, text=LANGUAGES[self.settings.language]["player"],
@@ -527,7 +588,6 @@ class SettingsWindow(BaseWindow):
 
         timer_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["game_timer"], padding=10)
         timer_frame.pack(fill="x", pady=5)
-        self.timer_var = tk.StringVar(value="with_timer" if self.temp_settings.use_timer else "no_timer")
         self.timer_var.trace("w",
                              lambda *args: self.update_temp_settings("use_timer", self.timer_var.get() == "with_timer"))
         ttk.Radiobutton(timer_frame, text=LANGUAGES[self.settings.language]["no_timer"],
@@ -537,12 +597,11 @@ class SettingsWindow(BaseWindow):
                                                                                                      padx=8)
 
         self.timer_duration_frame = ttk.Frame(timer_frame)
-        self.timer_var_duration = tk.IntVar(value=self.temp_settings.game_time)
         self.timer_var_duration.trace("w", lambda *args: self.update_temp_settings("game_time",
                                                                                    self.timer_var_duration.get()))
         ttk.Label(self.timer_duration_frame, text=LANGUAGES[self.settings.language]["game_duration"]).pack(side="left")
         self.timer_combo = ttk.Combobox(self.timer_duration_frame, textvariable=self.timer_var_duration,
-                                        state="readonly", values=[1, 2, 3, 5, 10, 20])
+                                        state="readonly", values=["1", "2", "3", "5", "10", "20"])
         self.timer_combo.pack(side="left", padx=5)
         if self.temp_settings.use_timer:
             self.timer_duration_frame.pack(side="left", padx=5)
@@ -554,7 +613,6 @@ class SettingsWindow(BaseWindow):
         sound_container = ttk.Frame(design_frame)
         sound_container.pack(fill="x", pady=2)
         ttk.Label(sound_container, text=LANGUAGES[self.settings.language]["sound_enabled"]).pack(side="left", padx=5)
-        self.sound_var = tk.BooleanVar(value=self.temp_settings.sound_enabled)
         ttk.Checkbutton(sound_container, variable=self.sound_var,
                         command=lambda: self.update_temp_settings("sound_enabled", self.sound_var.get())).pack(
             side="left", padx=5)
@@ -563,10 +621,6 @@ class SettingsWindow(BaseWindow):
         player_1_color_container.pack(fill="x", pady=2)
         ttk.Label(player_1_color_container, text=LANGUAGES[self.settings.language]["player_1_color"]).pack(side="left",
                                                                                                            padx=5)
-        try:
-            self.player_1_color_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.player_1_color))
-        except ValueError:
-            self.player_1_color_var = tk.StringVar(value="#ff0000")
         self.p1_color_button = ttk.Button(player_1_color_container, text="Choose Color",
                                           command=lambda: self.choose_color(self.player_1_color_var, "p1_color_button"))
         self.p1_color_button.pack(side="left", padx=5)
@@ -576,10 +630,6 @@ class SettingsWindow(BaseWindow):
         player_2_color_container.pack(fill="x", pady=2)
         ttk.Label(player_2_color_container, text=LANGUAGES[self.settings.language]["player_2_color"]).pack(side="left",
                                                                                                            padx=5)
-        try:
-            self.player_2_color_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.player_2_color))
-        except ValueError:
-            self.player_2_color_var = tk.StringVar(value="#0000ff")
         self.p2_color_button = ttk.Button(player_2_color_container, text="Choose Color",
                                           command=lambda: self.choose_color(self.player_2_color_var, "p2_color_button"))
         self.p2_color_button.pack(side="left", padx=5)
@@ -589,10 +639,6 @@ class SettingsWindow(BaseWindow):
         board_color_1_container.pack(fill="x", pady=2)
         ttk.Label(board_color_1_container, text=LANGUAGES[self.settings.language]["board_color_1"]).pack(side="left",
                                                                                                          padx=5)
-        try:
-            self.board_color_1_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.board_color_1))
-        except ValueError:
-            self.board_color_1_var = tk.StringVar(value="#ffffff")
         self.b1_color_button = ttk.Button(board_color_1_container, text="Choose Color",
                                           command=lambda: self.choose_color(self.board_color_1_var, "b1_color_button"))
         self.b1_color_button.pack(side="left", padx=5)
@@ -602,10 +648,6 @@ class SettingsWindow(BaseWindow):
         board_color_2_container.pack(fill="x", pady=2)
         ttk.Label(board_color_2_container, text=LANGUAGES[self.settings.language]["board_color_2"]).pack(side="left",
                                                                                                          padx=5)
-        try:
-            self.board_color_2_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.board_color_2))
-        except ValueError:
-            self.board_color_2_var = tk.StringVar(value="#8b4513")
         self.b2_color_button = ttk.Button(board_color_2_container, text="Choose Color",
                                           command=lambda: self.choose_color(self.board_color_2_var, "b2_color_button"))
         self.b2_color_button.pack(side="left", padx=5)
@@ -615,7 +657,6 @@ class SettingsWindow(BaseWindow):
         piece_style_container.pack(fill="x", pady=2)
         ttk.Label(piece_style_container, text=LANGUAGES[self.settings.language]["piece_style"]).pack(side="left",
                                                                                                      padx=5)
-        self.piece_style_var = tk.StringVar(value=self.temp_settings.piece_style)
         piece_styles = ["circle", "outlined_circle", "square", "diamond", "star", "custom"]
         ttk.OptionMenu(piece_style_container, self.piece_style_var, self.temp_settings.piece_style,
                        *piece_styles,
@@ -648,12 +689,11 @@ class SettingsWindow(BaseWindow):
         player_frame = ttk.Frame(notebook, padding="10")
         notebook.add(player_frame, text=LANGUAGES[self.settings.language]["player_tab"])
 
-        side = "right" if self.settings.language == "fa" else "left"
+        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
         anchor = "e" if side == "left" else "w"
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5,
                                                                                               pady=5, sticky=anchor)
-        self.player_1_name_var = tk.StringVar(value=self.temp_settings.player_1_name)
         ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5,
                                                                                     sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
@@ -662,7 +702,6 @@ class SettingsWindow(BaseWindow):
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5,
                                                                                               pady=5, sticky=anchor)
-        self.player_2_name_var = tk.StringVar(value=self.temp_settings.player_2_name)
         ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5,
                                                                                     sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
@@ -671,7 +710,6 @@ class SettingsWindow(BaseWindow):
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
                                                                                          pady=5, sticky=anchor)
-        self.al1_name_var = tk.StringVar(value=self.temp_settings.al1_name)
         ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
                                                                                sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
@@ -680,7 +718,6 @@ class SettingsWindow(BaseWindow):
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
                                                                                          pady=5, sticky=anchor)
-        self.al2_name_var = tk.StringVar(value=self.temp_settings.al2_name)
         ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
                                                                                sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
@@ -720,7 +757,7 @@ class SettingsWindow(BaseWindow):
 
             player2_training_params = {
                 "learning_rate": self.player2_learning_rate_var.get(),
-                "gamma": self.player2_gamma_var.get(),
+                "gamma": self.player2_gamma_var.get(),  # اصلاح gamma_var به player2_gamma_var
                 "batch_size": self.player2_batch_size_var.get(),
                 "memory_size": self.player2_memory_size_var.get()
             }
@@ -770,13 +807,14 @@ class SettingsWindow(BaseWindow):
         else:
             self.timer_duration_frame.pack_forget()
 
-    def choose_color(self, color_var, button):
+    def choose_color(self, color_var: tk.StringVar, button: str):
         color = colorchooser.askcolor(title="Choose Color")[1]
         if color:
             color_var.set(color)
             self.update_color_button(button, color)
 
-    def update_color_button(self, button, color):
+    @staticmethod
+    def update_color_button(button: ttk.Button, color: str):
         try:
             style_name = f"Color_{id(button)}.TButton"
             style = ttk.Style()
@@ -785,7 +823,7 @@ class SettingsWindow(BaseWindow):
         except Exception as e:
             logging.error(f"Error updating button color: {str(e)}")
 
-    def upload_image(self, player, var=None):
+    def upload_image(self, player: str, var: tk.StringVar = None):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
         if file_path:
             if var:
@@ -845,12 +883,12 @@ class SettingsWindow(BaseWindow):
 
     def save(self):
         try:
-            pause_time = self.ai_pause_var.get() if hasattr(self, 'ai_pause_var') else self.temp_settings.ai_pause_time
+            pause_time = self.ai_pause_var.get()
             if not 0 <= pause_time <= 5000:
                 self.log_error(LANGUAGES[self.settings.language]["ai_pause_error"])
                 return
 
-            repeat_hands = self.hmh_var.get() if hasattr(self, 'hmh_var') else self.temp_settings.repeat_hands
+            repeat_hands = self.hmh_var.get()
             if self.ai_vs_ai_var.get() == "repeat_game" and not 1 <= repeat_hands <= 1000:
                 self.log_error(LANGUAGES[self.settings.language]["invalid_number_hands"])
                 return
@@ -1008,13 +1046,13 @@ class SettingsWindow(BaseWindow):
             }
 
             ui_vars = {
-                "language_var": self.temp_settings.language,
-                "game_mode_var": self.temp_settings.game_mode,
+                "lang_var": self.temp_settings.language,
+                "play_with_var": self.temp_settings.game_mode,
                 "ai_vs_ai_var": self.temp_settings.ai_vs_ai_mode,
                 "hmh_var": self.temp_settings.repeat_hands,
-                "player_starts_var": self.temp_settings.player_starts,
-                "use_timer_var": self.temp_settings.use_timer,
-                "game_time_var": self.temp_settings.game_time,
+                "start_var": "player_1" if self.temp_settings.player_starts else "player_2",
+                "timer_var": "with_timer" if self.temp_settings.use_timer else "no_timer",
+                "timer_var_duration": self.temp_settings.game_time,
                 "piece_style_var": self.temp_settings.piece_style,
                 "sound_var": self.temp_settings.sound_enabled,
                 "ai_pause_var": self.temp_settings.ai_pause_time,
@@ -1022,10 +1060,10 @@ class SettingsWindow(BaseWindow):
                 "player_2_name_var": self.temp_settings.player_2_name,
                 "al1_name_var": self.temp_settings.al1_name,
                 "al2_name_var": self.temp_settings.al2_name,
-                "player_1_color_var": self.temp_settings.player_1_color,
-                "player_2_color_var": self.temp_settings.player_2_color,
-                "board_color_1_var": self.temp_settings.board_color_1,
-                "board_color_2_var": self.temp_settings.board_color_2,
+                "player_1_color_var": rgb_to_hex(self.temp_settings.player_1_color),
+                "player_2_color_var": rgb_to_hex(self.temp_settings.player_2_color),
+                "board_color_1_var": rgb_to_hex(self.temp_settings.board_color_1),
+                "board_color_2_var": rgb_to_hex(self.temp_settings.board_color_2),
                 "player_1_ai_type_var": self.temp_settings.player_1_ai_type,
                 "player_2_ai_type_var": self.temp_settings.player_2_ai_type
             }
@@ -1065,10 +1103,8 @@ class SettingsWindow(BaseWindow):
         self.timer_var.set("with_timer" if self.temp_settings.use_timer else "no_timer")
         self.timer_var_duration.set(self.temp_settings.game_time)
         self.piece_style_var.set(self.temp_settings.piece_style)
-        if hasattr(self, 'sound_var'):
-            self.sound_var.set(self.temp_settings.sound_enabled)
-        if hasattr(self, 'ai_pause_var'):
-            self.ai_pause_var.set(self.temp_settings.ai_pause_time)
+        self.sound_var.set(self.temp_settings.sound_enabled)
+        self.ai_pause_var.set(self.temp_settings.ai_pause_time)
         self.player_1_name_var.set(self.temp_settings.player_1_name)
         self.player_2_name_var.set(self.temp_settings.player_2_name)
         self.al1_name_var.set(self.temp_settings.al1_name)
@@ -1086,18 +1122,16 @@ class SettingsWindow(BaseWindow):
             7: "strong",
             9: "very_strong"
         }
-        if hasattr(self, 'player_1_ability_var'):
-            self.player_1_ability_var.set(
-                LANGUAGES[self.settings.language][
-                    ability_mapping.get(self.temp_settings.ai_configs["player_1"]["ability_level"], "medium")
-                ]
-            )
-        if hasattr(self, 'player_2_ability_var'):
-            self.player_2_ability_var.set(
-                LANGUAGES[self.settings.language][
-                    ability_mapping.get(self.temp_settings.ai_configs["player_2"]["ability_level"], "medium")
-                ]
-            )
+        self.player_1_ability_var.set(
+            LANGUAGES[self.settings.language][
+                ability_mapping.get(self.temp_settings.ai_configs["player_1"]["ability_level"], "medium")
+            ]
+        )
+        self.player_2_ability_var.set(
+            LANGUAGES[self.settings.language][
+                ability_mapping.get(self.temp_settings.ai_configs["player_2"]["ability_level"], "medium")
+            ]
+        )
         self.update_color_button(self.p1_color_button, self.player_1_color_var.get())
         self.update_color_button(self.p2_color_button, self.player_2_color_var.get())
         self.update_color_button(self.b1_color_button, self.board_color_1_var.get())
@@ -1111,7 +1145,6 @@ class SettingsWindow(BaseWindow):
 class AIProgressWindow(BaseWindow):
     def __init__(self, interface, root=None):
         super().__init__(interface, root)
-        self.pth_dir = self.pth_dir
 
     def create_widgets(self):
         self.create_window(
@@ -1137,7 +1170,7 @@ class AIProgressWindow(BaseWindow):
         ttk.Button(self.window, text=LANGUAGES[self.settings.language]["close"],
                    command=self.close, style="Custom.TButton").pack(pady=10)
 
-    def setup_model_tab(self, notebook, pth_file, model_id):
+    def setup_model_tab(self, notebook, pth_file: Path, model_id: str):
         tab_frame = ttk.Frame(notebook)
         notebook.add(tab_frame, text=model_id)
 
@@ -1157,9 +1190,9 @@ class AIProgressWindow(BaseWindow):
         table_frame = ttk.Frame(model_frame)
         table_frame.pack(fill="both", expand=True)
 
-        for col, header in enumerate(headers):
-            ttk.Label(table_frame, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5, pady=2,
-                                                                                 sticky="w")
+        for column, head in enumerate(headers):  # تغییر col به column و header به head
+            ttk.Label(table_frame, text=head, font=("Arial", 10, "bold")).grid(row=0, column=column, padx=5, pady=2,
+                                                                               sticky="w")
 
         model_data = {}
         total_params = 0
@@ -1172,14 +1205,15 @@ class AIProgressWindow(BaseWindow):
             logging.error(f"Failed to load model {pth_file}: {str(e)}")
 
         if "Error" not in model_data:
-            for row, (key, tensor) in enumerate(model_data.items(), 1):
-                ttk.Label(table_frame, text=key).grid(row=row, column=0, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row, column=1, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row, column=2, sticky="w", padx=5, pady=2)
+            for row_idx, (key, tensor) in enumerate(model_data.items(), 1):  # تغییر row به row_idx
+                ttk.Label(table_frame, text=key).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
+                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row_idx, column=1, sticky="w", padx=5,
+                                                                          pady=2)
+                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row_idx, column=2, sticky="w", padx=5, pady=2)
 
             ttk.Label(table_frame, text=LANGUAGES[self.settings.language]["total_parameters"],
-                      font=("Arial", 10, "bold")).grid(row=row + 1, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(table_frame, text=str(total_params)).grid(row=row + 1, column=2, sticky="w", padx=5, pady=2)
+                      font=("Arial", 10, "bold")).grid(row=row_idx + 1, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(table_frame, text=str(total_params)).grid(row=row_idx + 1, column=2, sticky="w", padx=5, pady=2)
         else:
             ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
 
@@ -1187,8 +1221,8 @@ class AIProgressWindow(BaseWindow):
                                         padding=10)
         progress_frame.pack(fill="x", pady=5)
 
-        progress_file = self.pth_dir / f"progress_tracker_{model_id}.json"
-        progress_data = self.load_progress_data(progress_file)
+        progress_file_path = self.pth_dir / f"progress_tracker_{model_id}.json"  # تغییر progress_file به progress_file_path
+        progress_data = self.load_progress_data(progress_file_path)
 
         if "Error" not in progress_data:
             progress_table = ttk.Frame(progress_frame)
@@ -1198,34 +1232,85 @@ class AIProgressWindow(BaseWindow):
             if self.settings.language == "fa":
                 progress_headers = ["دوره", "خطا", "دقت", "زمان آموزش (ثانیه)"]
 
-            for col, header in enumerate(progress_headers):
-                ttk.Label(progress_table, text=header, font=("Arial", 10, "bold")).grid(row=0, column=col, padx=5,
-                                                                                        pady=2, sticky="w")
+            for column, head in enumerate(progress_headers):  # تغییر col به column و header به head
+                ttk.Label(progress_table, text=head, font=("Arial", 10, "bold")).grid(row=0, column=column, padx=5,
+                                                                                      pady=2, sticky="w")
 
-            for row, epoch_data in enumerate(progress_data.get("epochs", []), 1):
-                ttk.Label(progress_table, text=str(epoch_data.get("epoch", "-"))).grid(row=row, column=0, sticky="w",
+            for row_idx, epoch_data in enumerate(progress_data.get("epochs", []), 1):  # تغییر row به row_idx
+                ttk.Label(progress_table, text=str(epoch_data.get("epoch", "-"))).grid(row=row_idx, column=0,
+                                                                                       sticky="w",
                                                                                        padx=5, pady=2)
-                ttk.Label(progress_table, text=str(epoch_data.get("loss", "-"))).grid(row=row, column=1, sticky="w",
+                ttk.Label(progress_table, text=str(epoch_data.get("loss", "-"))).grid(row=row_idx, column=1, sticky="w",
                                                                                       padx=5, pady=2)
-                ttk.Label(progress_table, text=str(epoch_data.get("accuracy", "-"))).grid(row=row, column=2, sticky="w",
+                ttk.Label(progress_table, text=str(epoch_data.get("accuracy", "-"))).grid(row=row_idx, column=2,
+                                                                                          sticky="w",
                                                                                           padx=5, pady=2)
-                ttk.Label(progress_table, text=str(epoch_data.get("training_time", "-"))).grid(row=row, column=3,
+                ttk.Label(progress_table, text=str(epoch_data.get("training_time", "-"))).grid(row=row_idx, column=3,
                                                                                                sticky="w", padx=5,
                                                                                                pady=2)
         else:
             ttk.Label(progress_frame, text=progress_data["Error"]).grid(row=1, column=0, padx=5, pady=10)
 
-    def load_progress_data(self, progress_file):
+    def load_progress_data(self, progress_file_path: Path) -> dict:  # تغییر progress_file به progress_file_path
         try:
-            if progress_file.exists():
-                with open(progress_file, "r") as f:
+            if progress_file_path.exists():
+                with open(progress_file_path, "r") as f:
                     data = json.load(f)
                 return data
             else:
                 return {"Error": LANGUAGES[self.settings.language]["model_not_found"]}
         except Exception as e:
-            logging.error(f"Failed to load progress file {progress_file}: {str(e)}")
+            logging.error(f"Failed to load progress file {progress_file_path}: {str(e)}")
             return {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
+
+    def setup_model_tab(self, notebook, pth_file: Path, model_id: str):
+        tab_frame = ttk.Frame(notebook)
+        notebook.add(tab_frame, text=model_id)
+
+        content_frame = ttk.Frame(tab_frame)
+        content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        model_frame = ttk.LabelFrame(content_frame, text=LANGUAGES[self.settings.language]["model_parameters"],
+                                     padding=10)
+        model_frame.pack(fill="x", pady=5)
+
+        headers = [
+            LANGUAGES[self.settings.language]["parameter"],
+            LANGUAGES[self.settings.language]["shape"],
+            LANGUAGES[self.settings.language]["num_elements"]
+        ]
+
+        table_frame = ttk.Frame(model_frame)
+        table_frame.pack(fill="both", expand=True)
+
+        for column, head in enumerate(headers):
+            ttk.Label(table_frame, text=head, font=("Arial", 10, "bold")).grid(row=0, column=column, padx=5, pady=2,
+                                                                               sticky="w")
+
+        model_data = {}
+        total_params = 0
+        row_idx = 1  # مقداردهی اولیه row_idx
+        try:
+            model_data = torch.load(pth_file, map_location=torch.device("cpu"))
+            for key, tensor in model_data.items():
+                total_params += tensor.numel()
+        except Exception as e:
+            model_data = {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
+            logging.error(f"Failed to load model {pth_file}: {str(e)}")
+
+        if "Error" not in model_data:
+            for key, tensor in model_data.items():
+                ttk.Label(table_frame, text=key).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
+                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row_idx, column=1, sticky="w", padx=5,
+                                                                          pady=2)
+                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row_idx, column=2, sticky="w", padx=5, pady=2)
+                row_idx += 1
+
+            ttk.Label(table_frame, text=LANGUAGES[self.settings.language]["total_parameters"],
+                      font=("Arial", 10, "bold")).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(table_frame, text=str(total_params)).grid(row=row_idx, column=2, sticky="w", padx=5, pady=2)
+        else:
+            ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
 
 
 class HelpWindow(BaseWindow):
@@ -1254,7 +1339,7 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.parent = parent
         self.settings = settings
         self.temp_settings = temp_settings
-        self.language = language
+        self.language = language  # تعریف language
         self.title(LANGUAGES[language]["advanced_settings_title"])
 
         config = load_config()
@@ -1266,9 +1351,9 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.resizable(True, True)
         self.minsize(config.get("min_window_width", 300), config.get("min_window_height", 200))
 
-        self.ai_config = load_ai_config()
+        self.ai_config = load_ai_config()  # تعریف ai_config
         self.ai_types = list(self.ai_config["ai_types"].keys())
-        self.param_vars = {}
+        self.param_vars = {}  # تعریف param_vars
         self.current_ai_type = self.ai_types[0] if self.ai_types else None
 
         main_frame = ttk.Frame(self)
@@ -1315,27 +1400,7 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-    def update_current_ai(self, event):
-        notebook = event.widget
-        current_tab = notebook.select()
-        tab_index = notebook.index(current_tab)
-        self.current_ai_type = self.ai_types[tab_index]
-        print(f"Current AI type updated to: {self.current_ai_type}")
-
-    def setup_ai_tab(self, notebook, ai_type):
-        ai_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(ai_frame, text=ai_type)
-
-        sub_notebook = ttk.Notebook(ai_frame)
-        sub_notebook.pack(fill="both", expand=True)
-
-        for player in ["player_1", "player_2"]:
-            self.setup_player_subtab(sub_notebook, ai_type, player)
-
-    def setup_player_subtab(self, sub_notebook, ai_type, player):
+    def setup_player_subtab(self, sub_notebook, ai_type: str, player: str):
         frame = ttk.Frame(sub_notebook, padding="10")
         sub_notebook.add(frame, text=LANGUAGES[self.language][player])
 
@@ -1352,34 +1417,41 @@ class AdvancedConfigWindow(tk.Toplevel):
                                             padding=10)
             category_frame.pack(fill="x", pady=5)
 
-            row = 0
+            row_idx = 0
             for param_name, default_value in params.items():
                 if param_name == "fc_layer_sizes":
                     continue
-                var_type = tk.StringVar if param_name == "cache_file" else tk.DoubleVar if isinstance(default_value,
-                                                                                                      float) else tk.IntVar
+                var_type = tk.StringVar if param_name == "cache_file" else tk.DoubleVar if isinstance(default_value, float) else tk.IntVar
                 value = player_params.get(param_category, {}).get(param_name, default_value)
-                try:
-                    if var_type == tk.StringVar:
-                        value = str(value)
-                    elif var_type == tk.DoubleVar:
-                        value = float(value)
-                    elif var_type == tk.IntVar:
-                        value = int(value)
-                except (ValueError, TypeError):
-                    value = default_value
-                param_var = var_type(value=value)
+                self.param_vars[ai_type][player][param_name] = var_type(value=value)
 
-                ttk.Label(category_frame, text=f"{param_name.replace('_', ' ').title()}:", anchor="w").grid(row=row,
-                                                                                                            column=0,
-                                                                                                            padx=5,
-                                                                                                            sticky="w")
-                entry = ttk.Entry(category_frame, textvariable=param_var, justify="right", width=15)
-                entry.grid(row=row, column=1, padx=5, sticky="e")
-                category_frame.grid_columnconfigure(1, weight=1)
+                ttk.Label(category_frame, text=param_name).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
+                ttk.Entry(category_frame, textvariable=self.param_vars[ai_type][player][param_name]).grid(
+                    row=row_idx, column=1, sticky="w", padx=5, pady=2
+                )
+                row_idx += 1
 
-                self.param_vars[ai_type][player][(param_category, param_name)] = param_var
-                row += 1
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def update_current_ai(self, event):
+        notebook = event.widget
+        current_tab = notebook.select()
+        tab_index = notebook.index(current_tab)
+        self.current_ai_type = self.ai_types[tab_index]
+        print(f"Current AI type updated to: {self.current_ai_type}")
+
+    def setup_ai_tab(self, notebook, ai_type: str):
+        ai_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(ai_frame, text=ai_type)
+
+        sub_notebook = ttk.Notebook(ai_frame)
+        sub_notebook.pack(fill="both", expand=True)
+
+        for player in ["player_1", "player_2"]:
+            self.setup_player_subtab(sub_notebook, ai_type, player)
+
+
 
     def reset_player_tab(self, ai_type, player):
         print(f"Resetting tab for AI: {ai_type}, Player: {player}")

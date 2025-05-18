@@ -1,9 +1,10 @@
-# game.py
 import pygame
 import importlib
 import logging
+import numpy as np
 from .checkers_core import get_piece_moves, make_move, log_to_json
 from .board import Board
+from .checkers_game import CheckersGame
 from .settings import GameSettings
 from .timer import TimerManager
 from pathlib import Path
@@ -27,8 +28,8 @@ class MoveHistory:
     """Manages the history of game states for undo/redo functionality.
 
     Attributes:
-        move_history (list): List of saved game states.
-        redo_stack (list): Stack of states for redo.
+        move_history (list): A list of saved game states.
+        redo_stack (list): A stack of states for redo.
     """
     def __init__(self):
         self.move_history = []
@@ -95,17 +96,17 @@ class Game:
     """Main class for the Checkers game.
 
     Attributes:
-        board (Board): Current board state.
-        settings: Game settings.
-        interface: User interface.
+        board (Board): The current board state.
+        settings: The game settings.
+        interface: The user interface.
         turn (bool): False for player 1, True for player 2.
-        game_over (bool): Whether the game is over.
+        game_over (bool): Indicates whether the game is over.
     """
 
     def __init__(self, settings=None, interface=None):
         try:
             self.config = load_config()
-            self.hovered_piece = None  # مهره‌ای که ماوس روی آن قرار دارد
+            self.hovered_piece = None
             if isinstance(settings, GameSettings):
                 self.settings = settings
             else:
@@ -114,7 +115,6 @@ class Game:
                     if key not in settings_dict:
                         settings_dict[key] = value
                 assets_dir = settings_dict.get("assets_dir", "assets")
-                # اعمال تنظیمات گرافیکی پیش‌فرض اگر خالی باشند
                 settings_dict["player_1_piece_image"] = settings_dict.get("player_1_piece_image") or str(
                     Path(assets_dir) / "white_piece.png")
                 settings_dict["player_2_piece_image"] = settings_dict.get("player_2_piece_image") or str(
@@ -123,10 +123,17 @@ class Game:
                     Path(assets_dir) / "white_king.png")
                 settings_dict["player_2_king_image"] = settings_dict.get("player_2_king_image") or str(
                     Path(assets_dir) / "black_king.png")
-                self.settings = GameSettings(**settings_dict)
-            # اطمینان از وجود game_mode و player_1_ai_type
+                valid_settings_keys = {
+                    "window_width", "window_height", "board_size", "game_mode", "player_1_ai_type",
+                    "player_2_ai_type", "player_starts", "use_timer", "game_time", "ai_pause_time",
+                    "repeat_hands", "ai_vs_ai_mode", "player_1_piece_image", "player_2_piece_image",
+                    "player_1_king_image", "player_2_king_image", "assets_dir"
+                }
+                filtered_settings = {k: v for k, v in settings_dict.items() if k in valid_settings_keys}
+                logger.debug(f"Settings passed to GameSettings: {filtered_settings}")
+                self.settings = GameSettings(**filtered_settings)
             if not hasattr(self.settings, "game_mode") or not self.settings.game_mode:
-                setattr(self.settings, "game_mode", "ai_vs_ai")  # یا "human_vs_ai" بسته به نیاز
+                setattr(self.settings, "game_mode", "ai_vs_ai")
             if not hasattr(self.settings, "player_1_ai_type") or not self.settings.player_1_ai_type:
                 setattr(self.settings, "player_1_ai_type", "advanced_ai")
             self.interface = interface
@@ -138,6 +145,7 @@ class Game:
             self._init_fonts()
             self._init_stats()
             self.board = Board(self.settings)
+            self.checkers_game = CheckersGame(settings=self.settings)
             self.timer = TimerManager(
                 getattr(self.settings, "use_timer", True),
                 getattr(self.settings, "game_time", 5)
@@ -171,7 +179,7 @@ class Game:
     def check_mouse_hover(self, pos):
         """Checks if the mouse is hovering over a piece and returns valid moves."""
         try:
-            if self.paused or not self.game_started or self.selected is not None:  # شرط جدید
+            if self.paused or not self.game_started or self.selected is not None:
                 return None
             x, y = pos
             if x < self.config.get("board_width") and self._is_human_turn():
@@ -210,23 +218,24 @@ class Game:
         self.player_2_wins = stats.get("player_2_wins", 0)
 
     def _init_ai_players(self):
-        """Initializes AI players."""
-        ai_config = load_ai_config()
-        self.ai_players = {}
-        game_mode = getattr(self.settings, "game_mode", "human_vs_human")
-        player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
-        player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
-        if game_mode in ["human_vs_ai", "ai_vs_ai"] or player_1_ai_type != "none" or player_2_ai_type != "none":
-            self.reward_calculator = RewardCalculator(self)
-        else:
-            self.reward_calculator = None
-        self.update_ai_players()
-
-    def update_ai_players(self):
-        """Updates AI players based on configuration."""
         try:
-            config_dict = load_ai_config()
-            # افزودن تنظیمات گرافیکی به config_dict
+            ai_config = load_ai_config()
+            self.ai_players = {}
+            game_mode = getattr(self.settings, "game_mode", "human_vs_human")
+            player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
+            player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
+            if game_mode in ["human_vs_ai", "ai_vs_ai"] or player_1_ai_type != "none" or player_2_ai_type != "none":
+                self.reward_calculator = RewardCalculator(self.checkers_game)
+            else:
+                self.reward_calculator = None
+            self.update_ai_players(ai_config)
+            logger.info("AI players initialized")
+        except Exception as e:
+            logger.error(f"Error initializing AI players: {e}")
+
+    def update_ai_players(self, config_dict=None):
+        try:
+            config_dict = config_dict or load_ai_config()
             config_dict["game_settings"] = {
                 "player_1_piece_image": getattr(self.settings, "player_1_piece_image", ""),
                 "player_2_piece_image": getattr(self.settings, "player_2_piece_image", ""),
@@ -264,25 +273,25 @@ class Game:
                     ai_class = ai_type_to_class.get(ai_type)
                     if ai_class:
                         self.ai_players[ai_id] = ai_class(
-                            game=self,
+                            game=self.checkers_game,
                             model_name=model_name,
-                            ai_id=ai_id,
-                            config=config_dict
-                        )
+                            ai_id=ai_id
+                        )  # حذف آرگومان config
                         logger.info(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
                     else:
                         logger.error(f"No AI class found for type: {ai_type}")
         except Exception as e:
             logger.error(f"Error updating AI players: {str(e)}")
-            raise  # برای دیباگ، استثنا را پرتاب می‌کنیم
+            raise
 
-    def _load_ai_classes(self, config_dict):
-        """Loads AI classes from configuration."""
+    @staticmethod
+    def _load_ai_classes(config_dict):
         ai_type_to_class = {}
         for ai_info in config_dict.get("available_ais", []):
             try:
+                class_name = "UnknownClass"
                 module_name = ai_info.get("module")
-                class_name = ai_info.get("class", "UnknownClass")
+                class_name = ai_info.get("class", class_name)
                 ai_type = ai_info.get("type")
                 if not module_name or not class_name:
                     logger.error(f"Missing module or class in ai_info: {ai_info}")
@@ -326,10 +335,10 @@ class Game:
             logger.error(f"Error starting game: {e}")
 
     def reset_board(self):
-        """Resets the game board."""
         try:
             self._reset_game_state()
             self.board = Board(self.settings)
+            self.checkers_game = CheckersGame(settings=self.settings)
             self.timer.start_game()
             self.update_ai_players()
             logger.info("Board reset")
@@ -360,6 +369,8 @@ class Game:
 
     def make_ai_move(self, ai_id=None):
         try:
+            move = None
+            valid_moves = None
             ai = self.ai_players.get(ai_id)
             if not ai:
                 log_to_json(
@@ -370,28 +381,92 @@ class Game:
                 return False
             player_number = 1 if ai_id == "ai_1" else 2
             player = 1 if player_number == 1 else -1
+            log_to_json(
+                f"Attempting to get move for {ai_id}, multi_jump_active={self.multi_jump_active}, selected={self.selected}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id, "board": self.board.board.tolist()}
+            )
+            valid_moves = self._get_ai_valid_moves(ai)
+            log_to_json(
+                f"Valid moves for {ai_id}: {valid_moves}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id}
+            )
+            if not valid_moves:
+                log_to_json(
+                    f"No valid moves available for {ai_id}",
+                    level="WARNING",
+                    extra_data={"ai_id": ai_id, "board": self.board.board.tolist()}
+                )
+                return False
+            # تبدیل دیکشنری valid_moves به لیست تاپل‌ها برای سازگاری با act
+            valid_moves_formatted = [tuple(move) for move in valid_moves.keys()]
+            log_to_json(
+                f"Formatted valid moves for {ai_id}: {valid_moves_formatted}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id}
+            )
             move = ai.get_move(self.board.board)
+            log_to_json(
+                f"Move returned by {ai_id}: {move}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id}
+            )
             if not move:
                 log_to_json(
                     f"No valid move returned by {ai_id}",
                     level="WARNING",
-                    extra_data={"ai_id": ai_id}
+                    extra_data={"ai_id": ai_id, "valid_moves": valid_moves_formatted}
                 )
                 return False
+            if not isinstance(move, (tuple, list)) or len(move) != 4:
+                log_to_json(
+                    f"Invalid move format returned by {ai_id}: {move}",
+                    level="ERROR",
+                    extra_data={"ai_id": ai_id, "move": move, "valid_moves": valid_moves_formatted}
+                )
+                return False
+            if not all(isinstance(x, int) for x in move):
+                log_to_json(
+                    f"Move elements must be integers: {move}",
+                    level="ERROR",
+                    extra_data={"ai_id": ai_id, "move": move, "valid_moves": valid_moves_formatted}
+                )
+                return False
+            move = tuple(move)
             from_row, from_col, to_row, to_col = move
+            if move not in valid_moves_formatted:
+                log_to_json(
+                    f"Move {move} not in valid moves for {ai_id}",
+                    level="ERROR",
+                    extra_data={"ai_id": ai_id, "move": move, "valid_moves": valid_moves_formatted}
+                )
+                return False
+            log_to_json(
+                f"Validating move {move} for player {player}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id, "move": move, "board": self.board.board.tolist()}
+            )
             board_before = self.board.copy()
             new_board, is_promotion, has_more_jumps = make_move(self.board, move, player)
             if new_board is None:
                 log_to_json(
                     f"Invalid AI move: {move}",
                     level="ERROR",
-                    extra_data={"ai_id": ai_id, "move": move}
+                    extra_data={"ai_id": ai_id, "move": move, "valid_moves": valid_moves_formatted,
+                                "board": self.board.board.tolist()}
                 )
                 return False
             self.board = new_board
+            self.checkers_game.set_state(self.board.board)
             board_after = self.board.copy()
             reward = self.reward_calculator.get_reward(player_number=player_number)
-            ai.update(((from_row, from_col), (to_row, to_col)), reward, board_before.board, board_after.board)
+            log_to_json(
+                f"Updating AI {ai_id} with move {move}, reward {reward}",
+                level="DEBUG",
+                extra_data={"ai_id": ai_id}
+            )
+            ai.update(move, reward, board_before.board, board_after.board)
             is_jump = abs(to_row - from_row) == 2
             self._handle_multi_jump(to_row, to_col, is_jump, is_promotion, player_number)
             log_to_json(
@@ -399,12 +474,20 @@ class Game:
                 level="INFO",
                 extra_data={"ai_id": ai_id, "move": move}
             )
+            if self.interface:
+                piece_value = board_before.board[from_row, from_col]
+                self.interface.animate_move(piece_value, from_row, from_col, to_row, to_col, is_kinged=is_promotion)
             return True
         except Exception as e:
             log_to_json(
                 f"Error in AI move for {ai_id}: {str(e)}",
                 level="ERROR",
-                extra_data={"ai_id": ai_id, "move": move if 'move' in locals() else None}
+                extra_data={
+                    "ai_id": ai_id,
+                    "move": move,
+                    "valid_moves": valid_moves,
+                    "board": self.board.board.tolist() if hasattr(self, 'board') else None
+                }
             )
             return False
 
@@ -445,7 +528,6 @@ class Game:
             return False
 
     def _move(self, row, col):
-        """Performs a move."""
         try:
             if self.paused or not self.game_started:
                 log_to_json(
@@ -457,7 +539,6 @@ class Game:
             if self.selected and (row, col) in self.valid_moves:
                 start_row, start_col = self.selected
                 player_number = 1 if not self.turn else 2
-                player = 1 if player_number == 1 else -1
                 move = (start_row, start_col, row, col)
                 self.history.save_state(self)
                 new_board, is_promotion, has_more_jumps = make_move(self.board, move, player_number)
@@ -465,6 +546,7 @@ class Game:
                     logger.error(f"Invalid move to ({row}, {col})")
                     return False
                 self.board = new_board
+                self.checkers_game.set_state(self.board.board)
                 is_jump = abs(row - start_row) == 2
                 self._update_move_counters(player_number, is_jump, is_promotion)
                 self._handle_multi_jump(row, col, is_jump, is_promotion, player_number)
@@ -489,7 +571,6 @@ class Game:
         self.no_capture_or_king_moves = 0 if is_capture or is_promotion else self.no_capture_or_king_moves + 1
 
     def _handle_multi_jump(self, row, col, is_jump, is_promotion, player_number):
-        """Handles multi-jump logic."""
         try:
             self.valid_moves = {}
             self.multi_jump_active = False
@@ -515,10 +596,20 @@ class Game:
                 return
             next_jumps = get_piece_moves(self.board, row, col, player)
             if next_jumps:
-                self.valid_moves = {(m[2], m[3]): [] for m in next_jumps}
+                valid_jumps = {}
+                for move, skipped in next_jumps.items():
+                    if isinstance(move, (tuple, list)) and len(move) == 4:
+                        valid_jumps[move] = skipped
+                    else:
+                        log_to_json(
+                            f"Invalid jump format in next_jumps: {move}",
+                            level="ERROR",
+                            extra_data={"move": move, "player_number": player_number}
+                        )
+                self.valid_moves = {(m[2], m[3]): skipped for m, skipped in valid_jumps.items()}
                 self.multi_jump_active = True
                 log_to_json(
-                    f"Multi-jump active, next jumps: {next_jumps}",
+                    f"Multi-jump active, next jumps: {valid_jumps}",
                     level="INFO",
                     extra_data={"position": (row, col)}
                 )
@@ -539,26 +630,21 @@ class Game:
             self.selected = None
             self.turn = not self.turn
 
-    def get_valid_moves(self, row, col):
-        """Calculates valid moves for a piece."""
+    def get_valid_moves(self, board: np.ndarray) -> dict[tuple[int, int, int, int], list[tuple[int, int]]]:
         try:
-            if self.paused or not self.game_started:
-                log_to_json(
-                    "Cannot get valid moves while paused or game not started",
-                    level="DEBUG",
-                    extra_data={"paused": self.paused, "game_started": self.game_started}
-                )
-                return {}
-            player = 1 if not self.turn else -1
-            moves = get_piece_moves(self.board, row, col, player)
-            return {(m[0], m[1], m[2], m[3]): [] for m in moves}
+            temp_game = self.checkers_game.copy()
+            temp_game.set_state(board)
+            temp_game.current_player = 1 if not self.turn else -1
+            legal_moves = temp_game.get_legal_moves()
+            valid_moves = {move: [] for move in legal_moves}
+            return valid_moves
         except Exception as e:
             log_to_json(
                 f"Error in get_valid_moves: {str(e)}",
                 level="ERROR",
-                extra_data={"row": row, "col": col, "board": self.board.board.tolist()}
+                extra_data={"board": board.tolist()}
             )
-            return {}
+            raise CheckersError(f"Failed to get valid moves: {str(e)}")
 
     def update_game(self):
         """Updates the game state."""
@@ -578,10 +664,6 @@ class Game:
         if self.game_started and not self.game_over:
             self.timer.update(self.turn, self.game_started, self.game_over)
             self.check_winner()
-            # حذف رندر حرکات پویا، چون در draw_game انجام می‌شود
-            # mouse_pos = pygame.mouse.get_pos()
-            # hovered_moves = self.check_mouse_hover(mouse_pos)
-            # self.draw_valid_moves(hovered_moves)
 
     def check_winner(self):
         """Checks if the game has a winner."""
@@ -595,9 +677,9 @@ class Game:
                     if piece != 0 and piece * player > 0:
                         moves = get_piece_moves(self.board, row, col, player)
                         if moves:
-                            return None  # بازی ادامه دارد
+                            return None
             self.game_over = True
-            self.winner = not self.turn  # برنده بازیکن دیگر است
+            self.winner = not self.turn
             log_to_json(
                 f"Game over, winner: {'black' if self.winner else 'white'}",
                 level="INFO"
@@ -643,7 +725,7 @@ class Game:
                 else:
                     self.player_2_wins += 1
             save_stats({"player_1_wins": self.player_1_wins, "player_2_wins": self.player_2_wins})
-            logger.autobus.info(f"Game ended, winner: {self.winner}")
+            logger.info(f"Game ended, winner: {self.winner}")
             log_to_json(
                 f"Game ended, winner: {self.winner}",
                 level="INFO",
@@ -688,20 +770,23 @@ class Game:
             self.settings.game_mode == "human_vs_ai" and not self.turn)
 
     def draw_valid_moves(self, hovered_moves=None):
-        """Draws valid moves on the board for selected piece and hovered piece."""
         try:
             if not self.game_started or self.paused:
                 return
-
-            # تنظیمات گرافیکی
             square_size = self.config.get("square_size", 80)
             border_thickness = self.config.get("border_thickness", 10)
             menu_height = self.config.get("menu_height", 100)
-            valid_move_color = (0, 255, 0, 128)  # سبز نیمه‌شفاف برای حرکات معتبر
+            valid_move_color = (0, 255, 0, 128)
             circle_radius = square_size // 4
-
-            # رسم حرکات معتبر برای مهره انتخاب‌شده (ثابت)
-            for (row, col), _ in self.valid_moves.items():
+            for move, _ in self.valid_moves.items():
+                if not (isinstance(move, tuple) and len(move) == 2 and all(isinstance(x, int) for x in move)):
+                    log_to_json(
+                        f"Invalid move format in valid_moves: {move}",
+                        level="ERROR",
+                        extra_data={"move": move}
+                    )
+                    continue
+                row, col = move
                 if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
                     log_to_json(
                         f"Invalid move position: ({row}, {col})",
@@ -709,18 +794,22 @@ class Game:
                         extra_data={"move": (row, col)}
                     )
                     continue
-                # محاسبه مختصات مرکز خانه
                 x = border_thickness + col * square_size + square_size // 2
                 y = menu_height + border_thickness + row * square_size + square_size // 2
-                # رسم دایره با استفاده از Surface برای پشتیبانی از شفافیت
                 surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
                 pygame.draw.circle(surface, valid_move_color, (square_size // 2, square_size // 2), circle_radius)
                 self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
                 log_to_json(f"Drawing valid move at ({row}, {col})", level="DEBUG", extra_data={"move": (row, col)})
-
-            # رسم حرکات معتبر برای مهره‌ای که ماوس روی آن است (پویا)
             if hovered_moves:
-                for (row, col), _ in hovered_moves.items():
+                for move, _ in hovered_moves.items():
+                    if not (isinstance(move, tuple) and len(move) == 2 and all(isinstance(x, int) for x in move)):
+                        log_to_json(
+                            f"Invalid move format in hovered_moves: {move}",
+                            level="ERROR",
+                            extra_data={"move": move}
+                        )
+                        continue
+                    row, col = move
                     if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
                         log_to_json(
                             f"Invalid hovered move position: ({row}, {col})",
@@ -735,7 +824,6 @@ class Game:
                     self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
                     log_to_json(f"Drawing hovered move at ({row}, {col})", level="DEBUG",
                                 extra_data={"move": (row, col)})
-
         except Exception as e:
             log_to_json(
                 f"Error in draw_valid_moves: {str(e)}",

@@ -1,8 +1,8 @@
+#checkers_core.py
 import json
 import os
 from datetime import datetime
 from typing import Tuple, Dict, Optional
-
 from .board import Board
 from .config import load_config
 
@@ -54,6 +54,13 @@ def get_piece_moves(board: Board, row: int, col: int, player: Optional[int] = No
 
 def make_move(board: Board, move: Tuple[int, int, int, int], player_number: int) -> Tuple[Optional[Board], bool, bool]:
     from_row, from_col, to_row, to_col = move
+    if not is_valid_position(from_row, from_col, board.board_size) or not is_valid_position(to_row, to_col, board.board_size):
+        log_to_json(
+            f"Invalid move coordinates: {move}",
+            level="ERROR",
+            extra_data={"move": move}
+        )
+        return None, False, False
     new_board = Board(board.settings)
     new_board.board = board.board.copy()
     new_board.player_1_left = board.player_1_left
@@ -62,10 +69,25 @@ def make_move(board: Board, move: Tuple[int, int, int, int], player_number: int)
     player = 1 if player_number == 1 else -1
 
     if piece == 0 or piece * player < 0:
+        log_to_json(
+            f"Invalid piece for move {move}: piece={piece}, player={player}",
+            level="ERROR",
+            extra_data={"move": move, "board": board.board.tolist()}
+        )
         return None, False, False
 
     moves = get_piece_moves(new_board, from_row, from_col)
+    log_to_json(
+        f"Available moves for piece at ({from_row}, {from_col}): {moves}",
+        level="DEBUG",
+        extra_data={"move": move, "board": board.board.tolist()}
+    )
     if (to_row, to_col) not in moves:
+        log_to_json(
+            f"Move {move} not in valid moves: {moves}",
+            level="ERROR",
+            extra_data={"move": move, "board": board.board.tolist()}
+        )
         return None, False, False
 
     new_board.board[to_row, to_col] = piece

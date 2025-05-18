@@ -1,6 +1,9 @@
+#interface.py
 import pygame
 import os
 import numpy as np
+
+from .checkers_core import log_to_json
 from .game import Game
 from .windows import SettingsWindow, AIProgressWindow, HelpWindow, AboutWindow
 from .config import load_config, save_stats
@@ -883,10 +886,30 @@ class GameInterface:
                         success = self.game.make_ai_move("ai_1")
                         if not success:
                             print(f"[Interface.update] AI move failed for ai_1, skipping")
-                            return
+                            log_to_json(
+                                "AI move failed for ai_1",
+                                level="ERROR",
+                                extra_data={
+                                    "ai_id": "ai_1",
+                                    "turn": self.game.turn,
+                                    "board": self.game.board.board.tolist(),
+                                    "game_mode": self.settings.game_mode
+                                }
+                            )
+                            # تغییر نوبت برای جلوگیری از گیر کردن
+                            self.game.change_turn()
+                            self.player_1_move_ready = True  # اجازه تلاش دوباره
+                        else:
+                            print(f"[Interface.update] AI move succeeded for ai_1")
+                            self.game.change_turn()  # تغییر نوبت بعد از حرکت موفق
                     else:
                         print(f"[Interface.update] No AI available for ai_1, skipping")
-                        return
+                        log_to_json(
+                            "No AI available for ai_1",
+                            level="ERROR",
+                            extra_data={"ai_id": "ai_1", "turn": self.game.turn}
+                        )
+                        self.game.change_turn()
                 elif self.player_2_move_ready and self.game.turn:
                     print("Player 2 AI move ready")
                     if "ai_2" in self.game.ai_players:
@@ -895,10 +918,29 @@ class GameInterface:
                         success = self.game.make_ai_move("ai_2")
                         if not success:
                             print(f"[Interface.update] AI move failed for ai_2, skipping")
-                            return
+                            log_to_json(
+                                "AI move failed for ai_2",
+                                level="ERROR",
+                                extra_data={
+                                    "ai_id": "ai_2",
+                                    "turn": self.game.turn,
+                                    "board": self.game.board.board.tolist(),
+                                    "game_mode": self.settings.game_mode
+                                }
+                            )
+                            self.game.change_turn()
+                            self.player_2_move_ready = True
+                        else:
+                            print(f"[Interface.update] AI move succeeded for ai_2")
+                            self.game.change_turn()
                     else:
                         print(f"[Interface.update] No AI available for ai_2, skipping")
-                        return
+                        log_to_json(
+                            "No AI available for ai_2",
+                            level="ERROR",
+                            extra_data={"ai_id": "ai_2", "turn": self.game.turn}
+                        )
+                        self.game.change_turn()
                 elif not self.player_1_move_ready and not self.game.turn:
                     if current_time - self._move_start_time >= self.settings.ai_pause_time:
                         print("Player 1 AI move ready after pause")
@@ -916,10 +958,29 @@ class GameInterface:
                         success = self.game.make_ai_move("ai_2")
                         if not success:
                             print(f"[Interface.update] AI move failed for ai_2 (human_vs_ai), skipping")
-                            return
+                            log_to_json(
+                                "AI move failed for ai_2 (human_vs_ai)",
+                                level="ERROR",
+                                extra_data={
+                                    "ai_id": "ai_2",
+                                    "turn": self.game.turn,
+                                    "board": self.game.board.board.tolist(),
+                                    "game_mode": self.settings.game_mode
+                                }
+                            )
+                            self.game.change_turn()
+                            self.player_2_move_ready = True
+                        else:
+                            print(f"[Interface.update] AI move succeeded for ai_2 (human_vs_ai)")
+                            self.game.change_turn()
                     else:
                         print(f"[Interface.update] No AI available for ai_2 (human_vs_ai), skipping")
-                        return
+                        log_to_json(
+                            "No AI available for ai_2 (human_vs_ai)",
+                            level="ERROR",
+                            extra_data={"ai_id": "ai_2", "turn": self.game.turn}
+                        )
+                        self.game.change_turn()
                 elif current_time - self._move_start_time >= self.settings.ai_pause_time:
                     print("Player 2 AI move ready after pause (human_vs_ai)")
                     self.player_2_move_ready = True

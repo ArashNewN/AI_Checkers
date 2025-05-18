@@ -1,10 +1,12 @@
+#config.py
 import json
-import os
 import sys
 from pathlib import Path
 import importlib
 
 DEFAULT_AI_PARAMS = {
+    "model_dir": "models",  # اضافه‌شده برای پیش‌فرض
+    "ability_level": 5,  # اضافه‌شده برای هماهنگی با ai_config.json
     "training_params": {
         "memory_size": 10000,
         "batch_size": 128,

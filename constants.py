@@ -1,15 +1,4 @@
-import json
-import os
-import random
-import sys
-from collections import deque
-import pygame
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-from tkinter import ttk, messagebox, filedialog, colorchooser
-import tkinter as tk
+#constants.py
 
 SQUARE_SIZE = 80
 BOARD_SIZE = 8

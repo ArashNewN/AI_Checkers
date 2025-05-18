@@ -1,6 +1,5 @@
 # board.py
 import os
-
 import numpy as np
 import pygame
 from .utils import CheckersError

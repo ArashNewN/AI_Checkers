@@ -1,6 +1,6 @@
-# base_ai.py
+#base_ai.py
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, List, Tuple, Optional
 import json
 import os
 import numpy as np
@@ -19,15 +19,20 @@ AI_METADATA = {
     "default_description": "Base AI with fundamental capabilities for the checkers game."
 }
 
+
 class BaseAI(ABC):
     """Abstract base class for AI implementations in the checkers game."""
+
     def __init__(self, game, model_name: str, ai_id: str, settings: Optional[Dict] = None):
         """Initializes the base AI."""
+        if not hasattr(game, 'copy') or not hasattr(game, 'get_legal_moves'):
+            raise ValueError(f"Provided game object does not support required methods (copy, get_legal_moves)")
         self.game = game
         self.model_name = model_name
         self.ai_id = ai_id
         self.settings = settings or {}
         self.player_number = 1 if self.ai_id == "ai_1" else 2
+        self.player = 1 if self.player_number == 1 else -1
 
         # Load configuration
         ai_config = load_ai_config()
@@ -36,27 +41,32 @@ class BaseAI(ABC):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Setup model paths
-        pth_dir = Path(self.config.get("model_dir", "models"))
+        pth_dir = Path(self.config["model_dir"])
         pth_dir.mkdir(exist_ok=True)
         self.model_path = pth_dir / f"{model_name}_{ai_id}.pth"
         self.backup_path = pth_dir / f"backup_{model_name}_{ai_id}.pth"
         self.long_term_memory_path = pth_dir / f"long_term_memory_{ai_id}.json"
 
         # Set ability level
-        self.ability = min(max(int(self.config.get("ability_level", 1)), 1), 10)
+        self.ability = min(max(int(self.config["ability_level"]), 1), 10)
 
         # Training variables
-        self.memory = deque(maxlen=self.config.get("training_params", {}).get("memory_size", 10000))
-        self.gamma = self.config.get("training_params", {}).get("gamma", 0.99)
+        self.memory = deque(maxlen=self.config["training_params"]["memory_size"])
+        self.gamma = self.config["training_params"]["gamma"]
         self.progress_tracker = None  # Must be initialized in derived class
         self.steps_done = 0
         self.epoch = 0
         self.episode_count = 0
-        self.update_target_every = self.config.get("training_params", {}).get("update_target_every", 1000)
+        self.update_target_every = self.config["training_params"]["update_target_every"]
         self.reward_calculator = RewardCalculator(game, ai_id=ai_id)
         self.episode_rewards = []
         self.current_episode_reward = 0
-        self.reward_threshold = self.config.get("training_params", {}).get("reward_threshold", 10.0)
+        self.reward_threshold = self.config["training_params"]["reward_threshold"]
+
+        # Neural network and optimizer (to be initialized in derived classes)
+        self.policy_net = None
+        self.target_net = None
+        self.optimizer = None
 
         log_to_json(
             f"Initialized BaseAI for {ai_id} with model {model_name}",
@@ -93,8 +103,8 @@ class BaseAI(ABC):
             self.reward_calculator.game = game
         log_to_json(f"Updated game object for {self.ai_id}", level="INFO")
 
-    def get_move(self, board):
-        """Selects a move for the current board."""
+    def get_move(self, board: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        """Selects a move for the current board in 4-tuple format."""
         try:
             valid_moves = self.get_valid_moves(board)
             if not valid_moves:
@@ -107,20 +117,19 @@ class BaseAI(ABC):
 
             move = self.act(valid_moves)
             if not move:
+                move = valid_moves[0]
                 log_to_json(
                     "act() returned None, selecting first valid move",
                     level="WARNING",
                     extra_data={"ai_id": self.ai_id}
                 )
-                move = list(valid_moves.keys())[0]
 
-            (start_row, start_col), (end_row, end_col) = move
             log_to_json(
-                f"Selected move: {(start_row, start_col, end_row, end_col)}",
+                f"Selected move: {move}",
                 level="INFO",
                 extra_data={"ai_id": self.ai_id}
             )
-            return (start_row, start_col, end_row, end_col)
+            return move
         except Exception as e:
             log_to_json(
                 f"Error in get_move: {str(e)}",
@@ -129,29 +138,13 @@ class BaseAI(ABC):
             )
             raise CheckersError(f"Failed to get move: {str(e)}")
 
-    def get_valid_moves(self, board):
-        """
-        Retrieves valid moves for the current board.
-
-        Args:
-            board (np.ndarray): The game board as an 8x8 numpy array.
-
-        Returns:
-            dict: Dictionary mapping move tuples to skipped pieces.
-        """
+    def get_valid_moves(self, board: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        """Retrieves valid moves from current board using game API (4-tuple format)."""
         try:
-            valid_moves = {}
-            player = 1 if self.player_number == 1 else -1
-            temp_board = Board(self.game.settings)
-            temp_board.board = board.copy()
-            for row in range(self.game.board.board_size):
-                for col in range(self.game.board.board_size):
-                    piece = board[row, col]
-                    if piece != 0 and piece * player > 0:
-                        moves = get_piece_moves(temp_board, row, col)
-                        for (to_row, to_col), skipped in moves.items():
-                            valid_moves[((row, col), (to_row, to_col))] = skipped
-            return valid_moves
+            temp_game = self.game.copy()
+            temp_game.set_state(board)
+            temp_game.current_player = self.player
+            return temp_game.get_legal_moves()
         except Exception as e:
             log_to_json(
                 f"Error in get_valid_moves: {str(e)}",
@@ -160,7 +153,7 @@ class BaseAI(ABC):
             )
             raise CheckersError(f"Failed to get valid moves: {str(e)}")
 
-    def get_state(self, board):
+    def get_state(self, board: np.ndarray) -> torch.Tensor:
         """Converts the game board to a state input for the neural network."""
         try:
             board_size = self.game.board.board_size
@@ -188,11 +181,11 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to get state: {str(e)}")
 
     @abstractmethod
-    def act(self, valid_moves):
-        """Selects a move from valid moves."""
+    def act(self, valid_moves: List[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:
+        """Selects a move from valid moves in 4-tuple format."""
         pass
 
-    def update(self, move, reward, board_before, board_after):
+    def update(self, move: Tuple[int, int, int, int], reward: float, board_before: np.ndarray, board_after: np.ndarray):
         """Updates the AI model based on the move and received reward."""
         try:
             if move is None:
@@ -205,7 +198,7 @@ class BaseAI(ABC):
 
             state = self.get_state(board_before)
             next_state = self.get_state(board_after)
-            action = move  # Use full move tuple
+            action = move
             done = self.game.game_over
 
             self.remember(state, action, reward, next_state, done)
@@ -220,7 +213,8 @@ class BaseAI(ABC):
             )
             raise CheckersError(f"Failed to update AI: {str(e)}")
 
-    def remember(self, state, action, reward, next_state, done):
+    def remember(self, state: torch.Tensor, action: Tuple[int, int, int, int], reward: float, next_state: torch.Tensor,
+                 done: bool):
         """Stores experience in memory."""
         try:
             self.current_episode_reward += reward
@@ -242,9 +236,14 @@ class BaseAI(ABC):
     def replay(self):
         """Trains the model using stored experiences."""
         try:
-            batch_size = self.config.get("training_params", {}).get("batch_size", 128)
+            if "training_params" not in self.config or "batch_size" not in self.config["training_params"]:
+                raise CheckersError("Missing 'batch_size' in training_params configuration")
+            batch_size = self.config["training_params"]["batch_size"]
             if len(self.memory) < batch_size:
                 return
+
+            if self.policy_net is None or self.target_net is None or self.optimizer is None:
+                raise CheckersError("Neural networks or optimizer not initialized")
 
             batch = list(self.memory)[-batch_size:]
             long_term_memory = self.load_long_term_memory()
@@ -257,7 +256,7 @@ class BaseAI(ABC):
             next_states = torch.cat(next_states)
             board_size = self.game.board.board_size
             action_indices = torch.tensor([
-                ((a[0][0] * board_size + a[0][1]) * board_size * board_size + (a[1][0] * board_size + a[1][1]))
+                (a[0] * board_size + a[1]) * (board_size * board_size) + (a[2] * board_size + a[3])
                 for a in actions if a is not None
             ], device=self.device)
             rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
@@ -273,14 +272,14 @@ class BaseAI(ABC):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 self.policy_net.parameters(),
-                self.config.get("training_params", {}).get("gradient_clip", 1.0)
+                self.config["training_params"]["gradient_clip"]
             )
             self.optimizer.step()
 
             for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
                 target_param.data.copy_(
-                    (1 - self.config.get("training_params", {}).get("target_update_alpha", 0.01)) * target_param.data +
-                    self.config.get("training_params", {}).get("target_update_alpha", 0.01) * policy_param.data
+                    (1 - self.config["training_params"]["target_update_alpha"]) * target_param.data +
+                    self.config["training_params"]["target_update_alpha"] * policy_param.data
                 )
 
             self.epoch += 1
@@ -292,11 +291,57 @@ class BaseAI(ABC):
             log_to_json(
                 f"Error in replay: {str(e)}",
                 level="ERROR",
-                extra_data={"ai_id": self.ai_id, "batch_size": batch_size}
+                extra_data={"ai_id": self.ai_id, "batch_size": locals().get("batch_size", "undefined")}
             )
             raise CheckersError(f"Failed to replay experiences: {str(e)}")
 
-    def save_important_experience(self, state, action, reward, next_state, done):
+    def update_target_network(self):
+        """Updates the target network."""
+        try:
+            if self.policy_net is None or self.target_net is None:
+                raise CheckersError("Neural networks not initialized")
+
+            self.episode_count += 1
+            if self.episode_count % self.update_target_every == 0:
+                self.target_net.load_state_dict(self.policy_net.state_dict())
+                log_to_json(
+                    f"Updated target network for {self.ai_id}",
+                    level="INFO",
+                    extra_data={"episode_count": self.episode_count}
+                )
+        except Exception as e:
+            log_to_json(
+                f"Error updating target network: {str(e)}",
+                level="ERROR",
+                extra_data={"ai_id": self.ai_id}
+            )
+            raise CheckersError(f"Failed to update target network: {str(e)}")
+
+    def save_model(self):
+        """Saves the model and episode rewards."""
+        try:
+            if self.policy_net is None:
+                raise CheckersError("Policy network not initialized")
+
+            torch.save(self.policy_net.state_dict(), self.model_path)
+            torch.save(self.policy_net.state_dict(), self.backup_path)
+            with open(self.long_term_memory_path.parent / f"episode_rewards_{self.ai_id}.json", "w") as f:
+                json.dump(self.episode_rewards, f)
+            log_to_json(
+                f"Saved model for {self.ai_id}",
+                level="INFO",
+                extra_data={"model_path": str(self.model_path)}
+            )
+        except Exception as e:
+            log_to_json(
+                f"Error saving model: {str(e)}",
+                level="ERROR",
+                extra_data={"ai_id": self.ai_id, "model_path": str(self.model_path)}
+            )
+            raise CheckersError(f"Failed to save model: {str(e)}")
+
+    def save_important_experience(self, state: torch.Tensor, action: Tuple[int, int, int, int], reward: float,
+                                  next_state: torch.Tensor, done: bool):
         """Stores important experiences in long-term memory."""
         try:
             if reward > self.reward_threshold:
@@ -318,7 +363,7 @@ class BaseAI(ABC):
             )
             raise CheckersError(f"Failed to save experience: {str(e)}")
 
-    def load_long_term_memory(self):
+    def load_long_term_memory(self) -> List[Tuple[torch.Tensor, Tuple[int, int, int, int], float, torch.Tensor, bool]]:
         """Loads experiences from long-term memory."""
         try:
             if os.path.exists(self.long_term_memory_path):
@@ -330,7 +375,7 @@ class BaseAI(ABC):
                         exp["next_state"] = torch.FloatTensor(exp["next_state"]).to(self.device)
                         experiences.append((
                             exp["state"],
-                            exp["action"],
+                            tuple(exp["action"]),  # Ensure action is a tuple
                             exp["reward"],
                             exp["next_state"],
                             exp["done"]
@@ -344,45 +389,6 @@ class BaseAI(ABC):
                 extra_data={"ai_id": self.ai_id, "path": str(self.long_term_memory_path)}
             )
             raise CheckersError(f"Failed to load long-term memory: {str(e)}")
-
-    def update_target_network(self):
-        """Updates the target network."""
-        try:
-            self.episode_count += 1
-            if self.episode_count % self.update_target_every == 0:
-                self.target_net.load_state_dict(self.policy_net.state_dict())
-                log_to_json(
-                    f"Updated target network for {self.ai_id}",
-                    level="INFO",
-                    extra_data={"episode_count": self.episode_count}
-                )
-        except Exception as e:
-            log_to_json(
-                f"Error updating target network: {str(e)}",
-                level="ERROR",
-                extra_data={"ai_id": self.ai_id}
-            )
-            raise CheckersError(f"Failed to update target network: {str(e)}")
-
-    def save_model(self):
-        """Saves the model and episode rewards."""
-        try:
-            torch.save(self.policy_net.state_dict(), self.model_path)
-            torch.save(self.policy_net.state_dict(), self.backup_path)
-            with open(self.long_term_memory_path.parent / f"episode_rewards_{self.ai_id}.json", "w") as f:
-                json.dump(self.episode_rewards, f)
-            log_to_json(
-                f"Saved model for {self.ai_id}",
-                level="INFO",
-                extra_data={"model_path": str(self.model_path)}
-            )
-        except Exception as e:
-            log_to_json(
-                f"Error saving model: {str(e)}",
-                level="ERROR",
-                extra_data={"ai_id": self.ai_id, "model_path": str(self.model_path)}
-            )
-            raise CheckersError(f"Failed to save model: {str(e)}")
 
     @classmethod
     def get_metadata(cls) -> Dict[str, str]:

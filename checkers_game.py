@@ -2,7 +2,7 @@
 import logging
 import os
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import Tuple
 from .board import Board
 from .checkers_core import get_piece_moves, make_move, log_to_json
 from .config import load_config
@@ -139,7 +139,7 @@ class CheckersGame:
         """
         try:
             from_row, from_col, to_row, to_col = move
-            new_board = make_move(self.board, move, self.current_player)
+            new_board = make_move(self.board, move)
             if new_board is None:
                 raise CheckersError(f"Invalid move: {move}")
 
