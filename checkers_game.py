@@ -15,7 +15,7 @@ config = load_config()
 log_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'checkers_game.log')
 logging.basicConfig(
     level=getattr(logging, config.get("logging_level", "ERROR")),
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format=' %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler(log_file, mode='a')

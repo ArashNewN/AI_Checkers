@@ -20,7 +20,7 @@ move_history_dir.mkdir(parents=True, exist_ok=True)  # ایجاد پوشه اگ�
 # تنظیم لاگ‌گیری
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(), logging.FileHandler('self_play.log')]
 )
 logger = logging.getLogger(__name__)

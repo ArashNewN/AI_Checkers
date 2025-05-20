@@ -1,137 +1,194 @@
-#checkers_core.py
+# checkers_core.py
+import numpy as np
+from typing import Dict, List, Optional, Tuple
 import json
-import os
-from datetime import datetime
-from typing import Tuple, Dict, Optional
+import logging
+from pathlib import Path
 from .board import Board
-from .config import load_config
+from .utils import CheckersError
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('checkers_core.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
-def is_valid_position(row: int, col: int, board_size: int) -> bool:
-    return 0 <= row < board_size and 0 <= col < board_size
-
-
-def can_jump(board: Board, from_row: int, from_col: int, mid_row: int, mid_col: int, piece: int) -> bool:
-    opponent_piece = board.board[mid_row, mid_col]
-    if opponent_piece == 0 or opponent_piece * piece > 0:
-        return False
-    to_row, to_col = from_row + 2 * (mid_row - from_row), from_col + 2 * (mid_col - from_col)
-    if not is_valid_position(to_row, to_col, board.board_size):
-        return False
-    if board.board[to_row, to_col] != 0:
-        return False
-    return True
-
-
-def get_piece_moves(board: Board, row: int, col: int, player: Optional[int] = None) -> Dict[Tuple[int, int], set[Tuple[int, int]]]:
-    moves = {}
-    piece = board.board[row, col]
-    if piece == 0 or (player is not None and piece * player <= 0):
-        return moves
-
-    # تعریف جهت‌های ممکن
-    all_directions = [(-1, -1), (-1, 1), (1, -1), (1, 1)]  # بالا-چپ، بالا-راست، پایین-چپ، پایین-راست
-    if abs(piece) == 1:  # مهره عادی
-        if piece > 0:  # بازیکن ۱ (سفید، حرکت به بالا)
-            directions = [(-1, -1), (-1, 1)]
-        else:  # بازیکن ۲ (سیاه، حرکت به پایین)
-            directions = [(1, -1), (1, 1)]
-    else:  # مهره شاه
-        directions = all_directions
-
-    # منطق محاسبه حرکات
-    for direction in directions:
-        new_row, new_col = row + direction[0], col + direction[1]
-        if is_valid_position(new_row, new_col, board.board_size):
-            if board.board[new_row, new_col] == 0:
-                moves[(new_row, new_col)] = set()  # حرکات ساده
-            elif can_jump(board, row, col, new_row, new_col, piece):
-                jump_row, jump_col = row + 2 * direction[0], col + 2 * direction[1]
-                skipped = {(new_row, new_col)}
-                moves[(jump_row, jump_col)] = skipped
-    return moves
-
-
-def make_move(board: Board, move: Tuple[int, int, int, int], player_number: int) -> Tuple[Optional[Board], bool, bool]:
-    from_row, from_col, to_row, to_col = move
-    if not is_valid_position(from_row, from_col, board.board_size) or not is_valid_position(to_row, to_col, board.board_size):
-        log_to_json(
-            f"Invalid move coordinates: {move}",
-            level="ERROR",
-            extra_data={"move": move}
-        )
-        return None, False, False
-    new_board = Board(board.settings)
-    new_board.board = board.board.copy()
-    new_board.player_1_left = board.player_1_left
-    new_board.player_2_left = board.player_2_left
-    piece = new_board.board[from_row, from_col]
-    player = 1 if player_number == 1 else -1
-
-    if piece == 0 or piece * player < 0:
-        log_to_json(
-            f"Invalid piece for move {move}: piece={piece}, player={player}",
-            level="ERROR",
-            extra_data={"move": move, "board": board.board.tolist()}
-        )
-        return None, False, False
-
-    moves = get_piece_moves(new_board, from_row, from_col)
-    log_to_json(
-        f"Available moves for piece at ({from_row}, {from_col}): {moves}",
-        level="DEBUG",
-        extra_data={"move": move, "board": board.board.tolist()}
-    )
-    if (to_row, to_col) not in moves:
-        log_to_json(
-            f"Move {move} not in valid moves: {moves}",
-            level="ERROR",
-            extra_data={"move": move, "board": board.board.tolist()}
-        )
-        return None, False, False
-
-    new_board.board[to_row, to_col] = piece
-    new_board.board[from_row, from_col] = 0
-    skipped = moves[(to_row, to_col)]
-    new_board.remove(skipped)
-
-    is_jump = len(skipped) > 0
-    is_promotion = False
-    if player == 1 and to_row == new_board.board_size - 1 and abs(piece) == 1:
-        new_board.board[to_row, to_col] = 2
-        is_promotion = True
-    elif player == -1 and to_row == 0 and abs(piece) == 1:
-        new_board.board[to_row, to_col] = -2
-        is_promotion = True
-
-    has_more_jumps = False
-    if is_jump and not is_promotion:
-        jumps = get_piece_moves(new_board, to_row, to_col)
-        has_more_jumps = any(skipped for _, skipped in jumps.items())
-
-    return new_board, is_promotion, has_more_jumps
-
-
-def log_to_json(message: str, level: str = "INFO", extra_data: Optional[Dict] = None):
-    """Logs a message to a JSON file based on the logging level."""
-    config = load_config()
-    logging_level = config.get("logging_level", "ERROR")
-    level_priority = {"INFO": 1, "WARNING": 2, "ERROR": 3}
-
-    if level_priority.get(level, 0) < level_priority.get(logging_level, 3):
-        return
-
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "level": level,
-        "message": message,
-        "extra_data": extra_data or {}
-    }
-
-    log_file = os.path.join(os.path.dirname(__file__), "checkers_errors.json")
+def log_to_json(message: str, level: str, extra_data: Optional[dict] = None):
     try:
-        with open(log_file, "a", encoding="utf-8") as f:
+        log_entry = {
+            "timestamp": np.datetime64('now').astype(str),
+            "level": level,
+            "message": message,
+            **(extra_data or {})
+        }
+        # Convert numpy arrays and numpy types to Python native types
+        def convert_numpy(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            return obj
+
+        log_entry = {k: convert_numpy(v) for k, v in log_entry.items()}
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        with open(log_dir / "checkers_core_log.json", "a", encoding="utf-8") as f:
             json.dump(log_entry, f, ensure_ascii=False)
             f.write("\n")
     except Exception as e:
-        log_to_json(f"Failed to log to JSON: {str(e)}", "ERROR")
+        logger.error(f"Error logging to JSON: {e}")
+
+def get_piece_moves(board: Board, row: int, col: int, player: int) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
+    """
+    Returns possible moves for a piece at (row, col) for the given player.
+    Format: {(to_row, to_col): [skipped_positions]}
+    """
+    try:
+        moves = {}
+        if not (0 <= row < board.board_size and 0 <= col < board.board_size):
+            log_to_json(
+                f"Invalid position ({row}, {col})",
+                level="ERROR",
+                extra_data={"row": row, "col": col, "board_size": board.board_size}
+            )
+            return moves
+        piece = board.board[row, col]
+        if piece == 0 or (player == 1 and piece < 0) or (player == -1 and piece > 0):
+            log_to_json(
+                f"No valid piece at ({row}, {col}) for player {player}",
+                level="DEBUG",
+                extra_data={"piece": piece, "player": player}
+            )
+            return moves
+        is_king = abs(piece) == 2
+        directions = [(-1, -1), (-1, 1), (1, -1), (1, 1)] if is_king else (
+            [(-1, -1), (-1, 1)] if player == 1 else [(1, -1), (1, 1)]
+        )
+        for dr, dc in directions:
+            # Simple move
+            r, c = row + dr, col + dc
+            if 0 <= r < board.board_size and 0 <= c < board.board_size and board.board[r, c] == 0:
+                moves[(r, c)] = []
+            # Jump move
+            r, c = row + 2 * dr, col + 2 * dc
+            mid_r, mid_c = row + dr, col + dc
+            if (0 <= r < board.board_size and 0 <= c < board.board_size and
+                board.board[r, c] == 0 and
+                board.board[mid_r, mid_c] != 0 and
+                (player == 1 and board.board[mid_r, mid_c] < 0) or
+                (player == -1 and board.board[mid_r, mid_c] > 0)):
+                moves[(r, c)] = [(mid_r, mid_c)]
+        log_to_json(
+            f"Calculated moves for piece at ({row}, {col}): {moves}",
+            level="DEBUG",
+            extra_data={"player": player, "piece": piece, "moves": moves}
+        )
+        return moves
+    except Exception as e:
+        log_to_json(
+            f"Error in get_piece_moves: {str(e)}",
+            level="ERROR",
+            extra_data={"row": row, "col": col, "player": player}
+        )
+        return {}
+
+def make_move(board: Board, move: Tuple[int, int, int, int], player_number: int) -> Tuple[Optional[Board], bool, bool]:
+    """
+    Executes a move and returns (new_board, is_promotion, has_more_jumps).
+    """
+    try:
+        from_row, from_col, to_row, to_col = move
+        if not (0 <= from_row < board.board_size and 0 <= from_col < board.board_size and
+                0 <= to_row < board.board_size and 0 <= to_col < board.board_size):
+            log_to_json(
+                f"Invalid move coordinates: {move}",
+                level="ERROR",
+                extra_data={"move": move, "board_size": board.board_size}
+            )
+            return None, False, False
+        piece = board.board[from_row, from_col]
+        player = 1 if player_number == 1 else -1
+        if piece == 0 or (player == 1 and piece < 0) or (player == -1 and piece > 0):
+            log_to_json(
+                f"Invalid piece at ({from_row}, {from_col}) for player {player}",
+                level="ERROR",
+                extra_data={"piece": piece, "player": player}
+            )
+            return None, False, False
+        valid_moves = get_piece_moves(board, from_row, from_col, player)
+        if (to_row, to_col) not in valid_moves:
+            log_to_json(
+                f"Move {move} not valid",
+                level="ERROR",
+                extra_data={"move": move, "valid_moves": valid_moves}
+            )
+            return None, False, False
+        new_board = board.copy()
+        new_board.board[to_row, to_col] = piece
+        new_board.board[from_row, from_col] = 0
+        is_jump = abs(to_row - from_row) == 2
+        skipped = valid_moves[(to_row, to_col)]
+        for skip_r, skip_c in skipped:
+            new_board.board[skip_r, skip_c] = 0
+            if player == 1:
+                new_board.player_2_left -= 1
+            else:
+                new_board.player_1_left -= 1
+        is_promotion = False
+        if player == 1 and to_row == 0 and abs(piece) == 1:
+            new_board.board[to_row, to_col] = 2
+            is_promotion = True
+        elif player == -1 and to_row == board.board_size - 1 and abs(piece) == 1:
+            new_board.board[to_row, to_col] = -2
+            is_promotion = True
+        has_more_jumps = False
+        if is_jump and not is_promotion:
+            additional_jumps = get_piece_moves(new_board, to_row, to_col, player)
+            has_more_jumps = any(abs(to_r - to_row) == 2 for to_r, to_c in additional_jumps.keys())
+        log_to_json(
+            f"Move {move} executed: is_jump={is_jump}, is_promotion={is_promotion}, has_more_jumps={has_more_jumps}",
+            level="INFO",
+            extra_data={"move": move, "player": player}
+        )
+        return new_board, is_promotion, has_more_jumps
+    except Exception as e:
+        log_to_json(
+            f"Error in make_move: {str(e)}",
+            level="ERROR",
+            extra_data={"move": move, "player_number": player_number}
+        )
+        return None, False, False
+
+def get_legal_moves(board: Board, player: int) -> List[Tuple[int, int, int, int]]:
+    """
+    Returns all legal moves for the player in 4-tuple format.
+    """
+    try:
+        moves = []
+        for row in range(board.board_size):
+            for col in range(board.board_size):
+                if board.board[row, col] * player > 0:
+                    piece_moves = get_piece_moves(board, row, col, player)
+                    for (to_row, to_col), _ in piece_moves.items():
+                        moves.append((row, col, to_row, to_col))
+        log_to_json(
+            f"Legal moves for player {player}: {moves}",
+            level="DEBUG",
+            extra_data={"player": player, "move_count": len(moves)}
+        )
+        return moves
+    except Exception as e:
+        log_to_json(
+            f"Error in get_legal_moves: {str(e)}",
+            level="ERROR",
+            extra_data={"player": player}
+        )
+        return []

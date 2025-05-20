@@ -1,4 +1,3 @@
-#base_ai.py
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Optional
 import json
@@ -8,52 +7,61 @@ import torch
 import torch.nn as nn
 from collections import deque
 from pathlib import Path
+import logging
 from .rewards import RewardCalculator
 from .checkers_core import log_to_json
 from .config import load_ai_config, DEFAULT_AI_PARAMS
 from .utils import CheckersError
 
-# Default metadata for BaseAI
+# تنظیم لاگینگ
+logger = logging.getLogger(__name__)
+
 AI_METADATA = {
     "default_type": "base_ai",
     "default_description": "Base AI with fundamental capabilities for the checkers game."
 }
 
-
 class BaseAI(ABC):
-    """Abstract base class for AI implementations in the checkers game."""
-
     def __init__(self, game, model_name: str, ai_id: str, settings: Optional[Dict] = None):
-        """Initializes the base AI."""
         if not hasattr(game, 'copy') or not hasattr(game, 'get_legal_moves'):
-            raise ValueError(f"Provided game object does not support required methods (copy, get_legal_moves)")
+            raise ValueError("Provided game object does not support required methods (copy, get_legal_moves)")
         self.game = game
         self.model_name = model_name
         self.ai_id = ai_id
         self.settings = settings or {}
         self.player_number = 1 if self.ai_id == "ai_1" else 2
         self.player = 1 if self.player_number == 1 else -1
+        self.player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
 
         # Load configuration
-        ai_config = load_ai_config()
-        player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
-        self.config = ai_config["ai_configs"].get(player_key, {}).get("params", DEFAULT_AI_PARAMS)
+        try:
+            config_data = load_ai_config()
+            self.config = config_data["ai_configs"].get(self.player_key, self._default_config())
+            if not self.config:
+                logger.warning(f"No config found for {self.player_key}, using default")
+                self.config = self._default_config()
+        except Exception as e:
+            logger.error(f"Error loading config for {self.ai_id}: {e}, using default")
+            self.config = self._default_config()
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Setup model paths
-        pth_dir = Path(self.config["model_dir"])
+        # Setup model paths dynamically
+        project_root = self._get_project_root()
+        model_dir = config_data.get("model_dir", "models")
+        pth_dir = project_root / model_dir
         pth_dir.mkdir(exist_ok=True)
         self.model_path = pth_dir / f"{model_name}_{ai_id}.pth"
         self.backup_path = pth_dir / f"backup_{model_name}_{ai_id}.pth"
         self.long_term_memory_path = pth_dir / f"long_term_memory_{ai_id}.json"
 
         # Set ability level
-        self.ability = min(max(int(self.config["ability_level"]), 1), 10)
+        self.ability = min(max(int(self.config.get("ability_level", 1)), 1), 10)
 
         # Training variables
         self.memory = deque(maxlen=self.config["training_params"]["memory_size"])
         self.gamma = self.config["training_params"]["gamma"]
-        self.progress_tracker = None  # Must be initialized in derived class
+        self.progress_tracker = None
         self.steps_done = 0
         self.epoch = 0
         self.episode_count = 0
@@ -63,7 +71,6 @@ class BaseAI(ABC):
         self.current_episode_reward = 0
         self.reward_threshold = self.config["training_params"]["reward_threshold"]
 
-        # Neural network and optimizer (to be initialized in derived classes)
         self.policy_net = None
         self.target_net = None
         self.optimizer = None
@@ -71,40 +78,54 @@ class BaseAI(ABC):
         log_to_json(
             f"Initialized BaseAI for {ai_id} with model {model_name}",
             level="INFO",
-            extra_data={"device": str(self.device), "ability": self.ability}
+            extra_data={"device": str(self.device), "ability": self.ability, "model_path": str(self.model_path)}
         )
 
-    def _default_config(self):
-        """Provides default configuration for AI."""
+    def _get_project_root(self) -> Path:
+        """Find the project root (old/) dynamically."""
+        current_file = Path(__file__).resolve()
+        # فرض می‌کنیم فایل در old/a قرار دارد، بنابراین parent به old اشاره می‌کند
+        project_root = current_file.parent.parent  # old/
+        if not (project_root / "config").exists():
+            logger.warning(f"Config directory not found in {project_root}, searching upwards")
+            # در صورت اجرای از پوشه دیگر، به سمت بالا جستجو می‌کنیم
+            for parent in current_file.parents:
+                if (parent / "config").exists() and (parent / "a").exists():
+                    project_root = parent
+                    break
+            else:
+                logger.error("Could not find project root with config and a directories")
+                raise CheckersError("Failed to locate project root directory")
+        return project_root
+
+    @staticmethod
+    def _default_config():
         return {
-            "model_dir": "models",
-            "ability_level": 1,
+            "ability_level": DEFAULT_AI_PARAMS.get("ability_level", 1),
             "training_params": {
-                "memory_size": 10000,
-                "gamma": 0.99,
-                "batch_size": 128,
-                "update_target_every": 1000,
-                "reward_threshold": 10.0,
-                "gradient_clip": 1.0,
-                "target_update_alpha": 0.01
+                "memory_size": DEFAULT_AI_PARAMS.get("training_params", {}).get("memory_size", 10000),
+                "gamma": DEFAULT_AI_PARAMS.get("training_params", {}).get("gamma", 0.99),
+                "batch_size": DEFAULT_AI_PARAMS.get("training_params", {}).get("batch_size", 64),
+                "update_target_every": DEFAULT_AI_PARAMS.get("training_params", {}).get("update_target_every", 1000),
+                "reward_threshold": DEFAULT_AI_PARAMS.get("training_params", {}).get("reward_threshold", 1.0),
+                "gradient_clip": DEFAULT_AI_PARAMS.get("training_params", {}).get("gradient_clip", 1.0),
+                "target_update_alpha": DEFAULT_AI_PARAMS.get("training_params", {}).get("target_update_alpha", 0.005)
             },
             "network_params": {
-                "board_size": 8
+                "board_size": DEFAULT_AI_PARAMS.get("network_params", {}).get("board_size", 8)
             },
             "advanced_nn_params": {
-                "input_channels": 3
+                "input_channels": DEFAULT_AI_PARAMS.get("advanced_nn_params", {}).get("input_channels", 3)
             }
         }
 
     def set_game(self, game):
-        """Updates the game object and reward calculator."""
         self.game = game
         if self.reward_calculator:
             self.reward_calculator.game = game
         log_to_json(f"Updated game object for {self.ai_id}", level="INFO")
 
     def get_move(self, board: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
-        """Selects a move for the current board in 4-tuple format."""
         try:
             valid_moves = self.get_valid_moves(board)
             if not valid_moves:
@@ -121,7 +142,7 @@ class BaseAI(ABC):
                 log_to_json(
                     "act() returned None, selecting first valid move",
                     level="WARNING",
-                    extra_data={"ai_id": self.ai_id}
+                    extra_data={"ai_id": self.ai_id, "move": move}
                 )
 
             log_to_json(
@@ -139,12 +160,17 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to get move: {str(e)}")
 
     def get_valid_moves(self, board: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Retrieves valid moves from current board using game API (4-tuple format)."""
         try:
             temp_game = self.game.copy()
             temp_game.set_state(board)
             temp_game.current_player = self.player
-            return temp_game.get_legal_moves()
+            moves = temp_game.get_legal_moves()
+            log_to_json(
+                f"Retrieved valid moves: {moves}",
+                level="DEBUG",
+                extra_data={"ai_id": self.ai_id}
+            )
+            return moves
         except Exception as e:
             log_to_json(
                 f"Error in get_valid_moves: {str(e)}",
@@ -154,7 +180,6 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to get valid moves: {str(e)}")
 
     def get_state(self, board: np.ndarray) -> torch.Tensor:
-        """Converts the game board to a state input for the neural network."""
         try:
             board_size = self.game.board.board_size
             input_channels = self.config.get("advanced_nn_params", {}).get("input_channels", 3)
@@ -164,14 +189,20 @@ class BaseAI(ABC):
                     piece = board[row, col]
                     if piece != 0:
                         if piece > 0:
-                            state[0, row, col] = 1  # Player 1 pieces
+                            state[0, row, col] = 1
                             if abs(piece) == 2:
-                                state[2, row, col] = 1  # Kings
+                                state[2, row, col] = 1
                         else:
-                            state[1, row, col] = 1  # Player 2 pieces
+                            state[1, row, col] = 1
                             if abs(piece) == 2:
-                                state[2, row, col] = 1  # Kings
-            return torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                                state[2, row, col] = 1
+            tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            log_to_json(
+                f"State shape: {tensor.shape}",
+                level="DEBUG",
+                extra_data={"ai_id": self.ai_id}
+            )
+            return tensor
         except Exception as e:
             log_to_json(
                 f"Error in get_state: {str(e)}",
@@ -182,11 +213,9 @@ class BaseAI(ABC):
 
     @abstractmethod
     def act(self, valid_moves: List[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:
-        """Selects a move from valid moves in 4-tuple format."""
         pass
 
     def update(self, move: Tuple[int, int, int, int], reward: float, board_before: np.ndarray, board_after: np.ndarray):
-        """Updates the AI model based on the move and received reward."""
         try:
             if move is None:
                 log_to_json(
@@ -215,7 +244,6 @@ class BaseAI(ABC):
 
     def remember(self, state: torch.Tensor, action: Tuple[int, int, int, int], reward: float, next_state: torch.Tensor,
                  done: bool):
-        """Stores experience in memory."""
         try:
             self.current_episode_reward += reward
             self.memory.append((state, action, reward, next_state, done))
@@ -234,10 +262,7 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to store experience: {str(e)}")
 
     def replay(self):
-        """Trains the model using stored experiences."""
         try:
-            if "training_params" not in self.config or "batch_size" not in self.config["training_params"]:
-                raise CheckersError("Missing 'batch_size' in training_params configuration")
             batch_size = self.config["training_params"]["batch_size"]
             if len(self.memory) < batch_size:
                 return
@@ -296,7 +321,6 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to replay experiences: {str(e)}")
 
     def update_target_network(self):
-        """Updates the target network."""
         try:
             if self.policy_net is None or self.target_net is None:
                 raise CheckersError("Neural networks not initialized")
@@ -318,7 +342,6 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to update target network: {str(e)}")
 
     def save_model(self):
-        """Saves the model and episode rewards."""
         try:
             if self.policy_net is None:
                 raise CheckersError("Policy network not initialized")
@@ -342,7 +365,6 @@ class BaseAI(ABC):
 
     def save_important_experience(self, state: torch.Tensor, action: Tuple[int, int, int, int], reward: float,
                                   next_state: torch.Tensor, done: bool):
-        """Stores important experiences in long-term memory."""
         try:
             if reward > self.reward_threshold:
                 with open(self.long_term_memory_path, "a") as f:
@@ -364,9 +386,8 @@ class BaseAI(ABC):
             raise CheckersError(f"Failed to save experience: {str(e)}")
 
     def load_long_term_memory(self) -> List[Tuple[torch.Tensor, Tuple[int, int, int, int], float, torch.Tensor, bool]]:
-        """Loads experiences from long-term memory."""
         try:
-            if os.path.exists(self.long_term_memory_path):
+            if self.long_term_memory_path.exists():
                 with open(self.long_term_memory_path, "r") as f:
                     experiences = []
                     for line in f.readlines():
@@ -375,7 +396,7 @@ class BaseAI(ABC):
                         exp["next_state"] = torch.FloatTensor(exp["next_state"]).to(self.device)
                         experiences.append((
                             exp["state"],
-                            tuple(exp["action"]),  # Ensure action is a tuple
+                            tuple(exp["action"]),
                             exp["reward"],
                             exp["next_state"],
                             exp["done"]
@@ -392,5 +413,4 @@ class BaseAI(ABC):
 
     @classmethod
     def get_metadata(cls) -> Dict[str, str]:
-        """Retrieves default metadata for this AI."""
         return getattr(cls, "AI_METADATA", AI_METADATA)

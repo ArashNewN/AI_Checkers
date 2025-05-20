@@ -7,7 +7,7 @@ from datetime import datetime
 # تنظیم لاگ‌گیری
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format=' %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(), logging.FileHandler('progress_tracker.log')]
 )
 logger = logging.getLogger(__name__)

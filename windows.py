@@ -23,7 +23,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     filename=Path(__file__).parent.parent / "logs" / "app.log",
     encoding="utf-8",
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format=" %(levelname)s - %(message)s"
 )
 
 # مسیر پروژه
@@ -300,7 +300,7 @@ class SettingsWindow(BaseWindow):
                                     "default_code": metadata["code"],
                                     "class_name": attr_name
                                 })
-                                print(f"Found AI: {module_name}.{attr_name}, metadata: {metadata}")
+                                print(f"Found AI: {module_name:}.{attr_name}, metadata: {metadata}")
                             else:
                                 print(f"Skipped {module_name}.{attr_name}: Invalid metadata")
                 except Exception as e:
@@ -310,7 +310,7 @@ class SettingsWindow(BaseWindow):
         for module in ai_modules:
             ai_type = module["default_type"]
             code = module["default_code"]
-            used_codes = {ai.get("code") for ai in ai_config["available_ais"]}
+            used_codes = {info.get("code") for info in ai_config["ai_types"].values()}
             if ai_type not in ai_config["ai_types"] and code not in used_codes:
                 ai_config["ai_types"][ai_type] = {
                     "module": f"{ai_dir}.{module['display']}",
@@ -318,12 +318,6 @@ class SettingsWindow(BaseWindow):
                     "description": module["default_description"],
                     "code": code
                 }
-                ai_config["available_ais"].append({
-                    "type": ai_type,
-                    "module": f"{ai_dir}.{module['display']}",
-                    "class": module["class_name"],
-                    "code": code
-                })
                 save_ai_specific_config(code, {
                     "player_1": DEFAULT_AI_PARAMS.copy(),
                     "player_2": DEFAULT_AI_PARAMS.copy()
@@ -424,10 +418,7 @@ class SettingsWindow(BaseWindow):
     def update_ai_list(self):
         self.ai_list.delete(*self.ai_list.get_children())
         ai_config = load_ai_config()
-        for ai_type in self.ai_types:
-            if ai_type == "none":
-                continue
-            ai_info = ai_config["ai_types"].get(ai_type, {})
+        for ai_type, ai_info in ai_config["ai_types"].items():
             description = ai_info.get("description", "")
             code = ai_info.get("code", "")
             self.ai_list.insert("", "end", values=(ai_type, code, description))
@@ -1263,55 +1254,6 @@ class AIProgressWindow(BaseWindow):
             logging.error(f"Failed to load progress file {progress_file_path}: {str(e)}")
             return {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
 
-    def setup_model_tab(self, notebook, pth_file: Path, model_id: str):
-        tab_frame = ttk.Frame(notebook)
-        notebook.add(tab_frame, text=model_id)
-
-        content_frame = ttk.Frame(tab_frame)
-        content_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        model_frame = ttk.LabelFrame(content_frame, text=LANGUAGES[self.settings.language]["model_parameters"],
-                                     padding=10)
-        model_frame.pack(fill="x", pady=5)
-
-        headers = [
-            LANGUAGES[self.settings.language]["parameter"],
-            LANGUAGES[self.settings.language]["shape"],
-            LANGUAGES[self.settings.language]["num_elements"]
-        ]
-
-        table_frame = ttk.Frame(model_frame)
-        table_frame.pack(fill="both", expand=True)
-
-        for column, head in enumerate(headers):
-            ttk.Label(table_frame, text=head, font=("Arial", 10, "bold")).grid(row=0, column=column, padx=5, pady=2,
-                                                                               sticky="w")
-
-        model_data = {}
-        total_params = 0
-        row_idx = 1  # مقداردهی اولیه row_idx
-        try:
-            model_data = torch.load(pth_file, map_location=torch.device("cpu"))
-            for key, tensor in model_data.items():
-                total_params += tensor.numel()
-        except Exception as e:
-            model_data = {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
-            logging.error(f"Failed to load model {pth_file}: {str(e)}")
-
-        if "Error" not in model_data:
-            for key, tensor in model_data.items():
-                ttk.Label(table_frame, text=key).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
-                ttk.Label(table_frame, text=str(list(tensor.shape))).grid(row=row_idx, column=1, sticky="w", padx=5,
-                                                                          pady=2)
-                ttk.Label(table_frame, text=str(tensor.numel())).grid(row=row_idx, column=2, sticky="w", padx=5, pady=2)
-                row_idx += 1
-
-            ttk.Label(table_frame, text=LANGUAGES[self.settings.language]["total_parameters"],
-                      font=("Arial", 10, "bold")).grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(table_frame, text=str(total_params)).grid(row=row_idx, column=2, sticky="w", padx=5, pady=2)
-        else:
-            ttk.Label(table_frame, text=model_data["Error"]).grid(row=1, column=0, columnspan=3, padx=5, pady=10)
-
 
 class HelpWindow(BaseWindow):
     def create_widgets(self):
@@ -1339,10 +1281,11 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.parent = parent
         self.settings = settings
         self.temp_settings = temp_settings
-        self.language = language  # تعریف language
+        self.language = language
         self.title(LANGUAGES[language]["advanced_settings_title"])
 
-        config = load_config()
+        # بارگذاری تنظیمات پنجره
+        config = load_config()  # فرض می‌کنیم load_config تعریف شده است
         width = config.get("settings_window_width", 500)
         height = config.get("settings_window_height", 750)
         x = (config.get("window_width", 800) - width) // 2
@@ -1351,11 +1294,19 @@ class AdvancedConfigWindow(tk.Toplevel):
         self.resizable(True, True)
         self.minsize(config.get("min_window_width", 300), config.get("min_window_height", 200))
 
-        self.ai_config = load_ai_config()  # تعریف ai_config
-        self.ai_types = list(self.ai_config["ai_types"].keys())
-        self.param_vars = {}  # تعریف param_vars
+        # بارگذاری تنظیمات AI
+        self.ai_config = load_ai_config()
+        self.ai_types = list(self.ai_config.get("ai_types", {}).keys())
+        self.param_vars = {}
         self.current_ai_type = self.ai_types[0] if self.ai_types else None
+        if not self.ai_types:
+            messagebox.showwarning(
+                LANGUAGES[self.language]["warning"],
+                "No AI types available. Please add AI modules.",
+                parent=self
+            )
 
+        # تنظیمات رابط کاربری
         main_frame = ttk.Frame(self)
         main_frame.pack(fill="both", expand=True)
 
@@ -1417,6 +1368,11 @@ class AdvancedConfigWindow(tk.Toplevel):
                                             padding=10)
             category_frame.pack(fill="x", pady=5)
 
+            # اعتبارسنجی اینکه params یک دیکشنری است
+            if not isinstance(params, dict):
+                logging.error(f"Invalid params structure for category {param_category}: {params}")
+                continue
+
             row_idx = 0
             for param_name, default_value in params.items():
                 if param_name == "fc_layer_sizes":
@@ -1438,12 +1394,13 @@ class AdvancedConfigWindow(tk.Toplevel):
         notebook = event.widget
         current_tab = notebook.select()
         tab_index = notebook.index(current_tab)
-        self.current_ai_type = self.ai_types[tab_index]
-        print(f"Current AI type updated to: {self.current_ai_type}")
+        self.current_ai_type = self.ai_types[tab_index] if self.ai_types else None
+        logging.debug(f"Current AI type updated to: {self.current_ai_type}")
 
     def setup_ai_tab(self, notebook, ai_type: str):
         ai_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(ai_frame, text=ai_type)
+        description = self.ai_config["ai_types"][ai_type].get("description", ai_type)
+        notebook.add(ai_frame, text=f"{ai_type}")
 
         sub_notebook = ttk.Notebook(ai_frame)
         sub_notebook.pack(fill="both", expand=True)
@@ -1451,15 +1408,13 @@ class AdvancedConfigWindow(tk.Toplevel):
         for player in ["player_1", "player_2"]:
             self.setup_player_subtab(sub_notebook, ai_type, player)
 
-
-
     def reset_player_tab(self, ai_type, player):
-        print(f"Resetting tab for AI: {ai_type}, Player: {player}")
         if not ai_type:
-            print("No AI type selected, aborting reset")
+            logging.error("No AI type selected, aborting reset")
             messagebox.showerror(
                 LANGUAGES[self.language]["error"],
-                LANGUAGES[self.language]["no_ai_selected"]
+                LANGUAGES[self.language]["no_ai_selected"],
+                parent=self
             )
             return
 
@@ -1468,7 +1423,7 @@ class AdvancedConfigWindow(tk.Toplevel):
                 f"{LANGUAGES[self.language]['confirm_reset']} {LANGUAGES[self.language][player]}",
                 parent=self
         ):
-            print(f"Reset for {player} cancelled by user")
+            logging.info(f"Reset for {player} cancelled by user")
             return
 
         player_params = DEFAULT_AI_PARAMS.copy()
@@ -1476,11 +1431,14 @@ class AdvancedConfigWindow(tk.Toplevel):
         ai_specific_config = load_ai_specific_config(ai_code)
 
         for param_category, params in DEFAULT_AI_PARAMS.items():
+            if not isinstance(params, dict):
+                logging.error(f"Invalid params structure for category {param_category}: {params}")
+                continue
             for param_name, default_value in params.items():
                 if param_name == "fc_layer_sizes":
                     player_params[param_category][param_name] = default_value
                     continue
-                param_var = self.param_vars[ai_type][player].get((param_category, param_name))
+                param_var = self.param_vars[ai_type][player].get(param_name)
                 if param_var:
                     try:
                         if param_name == "cache_file":
@@ -1494,20 +1452,20 @@ class AdvancedConfigWindow(tk.Toplevel):
                         param_var.set(value)
                         player_params[param_category][param_name] = value
                     except Exception as e:
-                        print(f"Error setting {param_category}.{param_name}: {e}")
+                        logging.error(f"Error setting {param_category}.{param_name}: {e}")
                         param_var.set(default_value)
                         player_params[param_category][param_name] = default_value
-                    print(f"Set {param_category}.{param_name} to {param_var.get()}")
+                    logging.debug(f"Set {param_category}.{param_name} to {param_var.get()}")
 
         self.temp_settings.ai_configs[player]["params"] = player_params
         ai_specific_config[player] = player_params
         save_ai_specific_config(ai_code, ai_specific_config)
-        print(f"Saved reset params for {player} to {ai_code}_config.json")
-        print(f"Updated temp_settings.ai_configs[{player}] with default params")
+        logging.info(f"Saved reset params for {player} to {ai_code}_config.json")
 
         messagebox.showinfo(
             LANGUAGES[self.language]["info"],
-            f"{LANGUAGES[self.language]['settings_reset']} {LANGUAGES[self.language][player]}"
+            f"{LANGUAGES[self.language]['settings_reset']} {LANGUAGES[self.language][player]}",
+            parent=self
         )
 
     def save_advanced_settings(self):
@@ -1520,8 +1478,11 @@ class AdvancedConfigWindow(tk.Toplevel):
                     player_params = {}
                     for param_category, params in DEFAULT_AI_PARAMS.items():
                         player_params[param_category] = {}
+                        if not isinstance(params, dict):
+                            logging.error(f"Invalid params structure for category {param_category}: {params}")
+                            continue
                         for param_name, default_value in params.items():
-                            param_var = self.param_vars[ai_type][player].get((param_category, param_name))
+                            param_var = self.param_vars[ai_type][player].get(param_name)
                             if param_var:
                                 try:
                                     if param_name == "cache_file":
@@ -1536,17 +1497,14 @@ class AdvancedConfigWindow(tk.Toplevel):
                                 except (ValueError, TypeError) as e:
                                     player_params[param_category][param_name] = default_value
                                     logging.error(
-                                        f"Invalid value for {param_category}.{param_name} in {ai_type} for {player}: {str(e)}")
+                                        f"Invalid value for {param_category}.{param_name} in {ai_type} for {player}: {e}")
                             else:
                                 player_params[param_category][param_name] = default_value
 
-                    # به‌روزرسانی تنظیمات موقت
                     self.temp_settings.ai_configs[player]["params"] = player_params
-                    # ذخیره در فایل تنظیمات خاص AI
                     ai_specific_config[player] = player_params
                     save_ai_specific_config(ai_code, ai_specific_config)
 
-            # ذخیره تنظیمات کلی AI
             ai_config = load_ai_config()
             ai_config["ai_configs"]["player_1"].update(self.temp_settings.ai_configs["player_1"])
             ai_config["ai_configs"]["player_2"].update(self.temp_settings.ai_configs["player_2"])
@@ -1554,13 +1512,13 @@ class AdvancedConfigWindow(tk.Toplevel):
 
             messagebox.showinfo(
                 LANGUAGES[self.language]["info"],
-                LANGUAGES[self.settings.language]["settings_saved"],
+                LANGUAGES[self.language]["settings_saved"],
                 parent=self
             )
             self.destroy()
 
         except Exception as e:
-            logging.error(f"Error saving advanced settings: {str(e)}")
+            logging.error(f"Error saving advanced settings: {e}")
             messagebox.showerror(
                 LANGUAGES[self.language]["error"],
                 LANGUAGES[self.language]["error_saving_settings"].format(error=str(e)),

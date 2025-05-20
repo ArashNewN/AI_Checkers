@@ -33,7 +33,7 @@ log_dir = os.path.dirname(os.path.dirname(__file__))
 log_file = os.path.join(log_dir, 'alphazero_ai.log')
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format=' %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler(log_file, mode='a')
