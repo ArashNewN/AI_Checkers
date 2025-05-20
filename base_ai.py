@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Optional
 import json
-import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -81,7 +80,8 @@ class BaseAI(ABC):
             extra_data={"device": str(self.device), "ability": self.ability, "model_path": str(self.model_path)}
         )
 
-    def _get_project_root(self) -> Path:
+    @staticmethod
+    def _get_project_root() -> Path:
         """Find the project root (old/) dynamically."""
         current_file = Path(__file__).resolve()
         # فرض می‌کنیم فایل در old/a قرار دارد، بنابراین parent به old اشاره می‌کند

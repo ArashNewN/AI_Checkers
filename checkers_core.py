@@ -5,7 +5,7 @@ import json
 import logging
 from pathlib import Path
 from .board import Board
-from .utils import CheckersError
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -75,14 +75,14 @@ def get_piece_moves(board: Board, row: int, col: int, player: int) -> Dict[Tuple
         for dr, dc in directions:
             # Simple move
             r, c = row + dr, col + dc
-            if 0 <= r < board.board_size and 0 <= c < board.board_size and board.board[r, c] == 0:
+            if board.board_size > r >= 0 == board.board[r, c] and 0 <= c < board.board_size:
                 moves[(r, c)] = []
             # Jump move
             r, c = row + 2 * dr, col + 2 * dc
             mid_r, mid_c = row + dr, col + dc
-            if (0 <= r < board.board_size and 0 <= c < board.board_size and
-                board.board[r, c] == 0 and
-                board.board[mid_r, mid_c] != 0 and
+            if (
+                    board.board_size > r >= 0 == board.board[r, c] and board.board_size > c >= 0 != board.board[
+                mid_r, mid_c] and
                 (player == 1 and board.board[mid_r, mid_c] < 0) or
                 (player == -1 and board.board[mid_r, mid_c] > 0)):
                 moves[(r, c)] = [(mid_r, mid_c)]

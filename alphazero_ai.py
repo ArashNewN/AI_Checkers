@@ -58,7 +58,8 @@ class MCTS:
         self.game = game
         self.model = model
 
-    def search(self, state, valid_moves):
+
+    def search(state, valid_moves):
         # خروجی موقت برای تست
         move_probs = [1.0 / len(valid_moves) for _ in valid_moves]
         value = 0.0

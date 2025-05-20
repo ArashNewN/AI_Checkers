@@ -1037,50 +1037,20 @@ class GameInterface:
         self.hint_enabled_p2 = not self.hint_enabled_p2
         self.hint_buttons[1].text = LANGUAGES[self.settings.language]["hint_on" if self.hint_enabled_p2 else "hint_off"]
 
-    def get_hint(self):
-        if not self.game.game_started or self.game.game_over:
-            return None
-
-        valid_moves = {}
-        board_size = self.game.board_size
-        player_number = 2 if self.game.turn else 1
-
-        for row in range(board_size):
-            for col in range(board_size):
-                piece = self.game.board.board[row, col]
-                if piece != 0 and (
-                        (piece > 0 and player_number == 1) or (piece < 0 and player_number == 2)
-                ):
-                    moves = self.game.get_valid_moves(row, col)
-                    if moves:
-                        for move, skipped in moves.items():
-                            valid_moves[((row, col), move)] = skipped
-
-        if not valid_moves:
-            return None
-
-        return list(valid_moves.keys())[0]
-
-    def draw_hint(self, hint):
-        if hint is None or not (self.hint_enabled_p1 and not self.game.turn or self.hint_enabled_p2 and self.game.turn):
+    def draw_hint(self, start_row, start_col, end_row, end_col):
+        if (start_row, start_col, end_row, end_col) == (None, None, None, None) or not (
+                self.hint_enabled_p1 and not self.game.turn or self.hint_enabled_p2 and self.game.turn):
             return
-
         current_time = pygame.time.get_ticks()
         if current_time - self.hint_blink_timer > self.config['hint_blink_interval']:
             self.hint_blink_state = not self.hint_blink_state
             self.hint_blink_timer = current_time
-
         if not self.hint_blink_state:
             return
-
-        start_row, start_col = hint[0]
-        end_row, end_col = hint[1]
-
         start_x = start_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
         start_y = start_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
         end_x = end_col * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.BORDER_THICKNESS
         end_y = end_row * self.SQUARE_SIZE + self.SQUARE_SIZE // 2 + self.MENU_HEIGHT + self.BORDER_THICKNESS
-
         pygame.draw.circle(self.screen, self.config['hint_circle_color'], (start_x, start_y),
                            self.config['hint_circle_radius'])
         pygame.draw.circle(self.screen, self.config['hint_circle_color'], (end_x, end_y),
@@ -1106,8 +1076,12 @@ class GameInterface:
 
             if self.settings.game_mode in ["human_vs_human", "human_vs_ai"] and (
                     self.hint_enabled_p1 or self.hint_enabled_p2):
-                hint = self.get_hint()
-                self.draw_hint(hint)
+                hint = self.game.get_hint()  # استفاده از get_hint از game.py
+                if hint is not None:
+                    start_row, start_col, end_row, end_col = hint
+                    self.draw_hint(start_row, start_col, end_row, end_col)
+                else:
+                    self.draw_hint(None, None, None, None)
 
             pygame.display.flip()
 

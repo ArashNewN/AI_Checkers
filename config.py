@@ -8,14 +8,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 def get_project_root() -> Path:
-    current_file = Path(__file__).resolve()
-    project_root = current_file.parent.parent  # old/
-    if not (project_root / "configs").exists():
-        for parent in current_file.parents:
-            if (parent / "configs").exists() and (parent / "a").exists():
-                return parent
-        raise ValueError("Could not find project root with configs and a directories")
-    return project_root
+    current_path = Path(__file__).resolve().parent
+    max_depth = 10
+    depth = 0
+    while depth < max_depth:
+        if (current_path / "configs").exists() and (current_path / "a").exists():
+            logger.debug(f"Project root found at: {current_path}")
+            return current_path
+        current_path = current_path.parent
+        depth += 1
+    logger.error("Could not find project root with config and a directories")
+    log_to_json("Could not find project root with config and a directories", level="ERROR")
+    raise FileNotFoundError("Failed to locate project root directory")
 
 DEFAULT_AI_PARAMS = {
     "ability_level": 5,

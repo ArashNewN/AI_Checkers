@@ -13,7 +13,7 @@ from .config import load_ai_config, DEFAULT_AI_PARAMS
 from .progress_tracker import ProgressTracker, logger
 from .rewards import RewardCalculator
 
-# متادیتای ماژول
+
 AI_METADATA = {
     "type": "advanced_ai",
     "description": "هوش مصنوعی پیشرفته با شبکه عصبی عمیق و یادگیری تقویتی.",

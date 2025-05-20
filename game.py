@@ -1,8 +1,11 @@
+#game.py
 import pygame
 import importlib
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
+
+from .base_ai import BaseAI
 from .checkers_core import get_piece_moves, make_move, log_to_json
 from .board import Board
 from .checkers_game import CheckersGame
@@ -12,7 +15,7 @@ from .rewards import RewardCalculator
 from .config import load_stats, save_stats, load_ai_config, load_config, get_project_root
 from .utils import CheckersError
 
-# تنظیم لاگ
+
 config = load_config()
 logging.basicConfig(
     level=getattr(logging, config.get("logging_level", "DEBUG")),
@@ -116,11 +119,23 @@ class Game:
                 }
                 filtered_settings = {k: v for k, v in settings_dict.items() if k in valid_settings_keys}
                 logger.debug(f"Settings passed to GameSettings: {filtered_settings}")
-                self.settings = GameSettings(**filtered_settings)
-            if not hasattr(self.settings, "game_mode") or not self.settings.game_mode:
-                setattr(self.settings, "game_mode", "ai_vs_ai")
-            if not hasattr(self.settings, "player_1_ai_type") or not self.settings.player_1_ai_type:
-                setattr(self.settings, "player_1_ai_type", "advanced_ai")
+                try:
+                    self.settings = GameSettings(**filtered_settings)
+                except TypeError as e:
+                    logger.error(f"Error creating GameSettings: {e}, filtered_settings={filtered_settings}")
+                    raise
+
+                if not hasattr(self.settings, "game_mode") or not self.settings.game_mode:
+                    setattr(self.settings, "game_mode", "ai_vs_ai")
+                # بررسی وجود player_1_ai_type و player_2_ai_type در تنظیمات
+                ai_config = load_ai_config()
+                available_ai_types = list(ai_config.get("ai_types", {}).keys())
+                logger.debug(f"Available AI types: {available_ai_types}")
+                if not hasattr(self.settings, "player_1_ai_type") or not self.settings.player_1_ai_type:
+                    # اگر هیچ AI مشخص نشده، از اولین AI موجود استفاده کن یا None
+                    setattr(self.settings, "player_1_ai_type", available_ai_types[0] if available_ai_types else "none")
+                if not hasattr(self.settings, "player_2_ai_type") or not self.settings.player_2_ai_type:
+                    setattr(self.settings, "player_2_ai_type", available_ai_types[0] if available_ai_types else "none")
             self.interface = interface
             self.screen = pygame.display.set_mode((
                 getattr(self.settings, "window_width", 940),
@@ -155,7 +170,7 @@ class Game:
             self.score_updated = False
             self.time_up = False
             self.paused = False
-            self.ai_players: Dict[str, 'BaseAI'] = {}  # تایپ برای ai_players
+            self.ai_players: Dict[str, 'BaseAI'] = {}
             self._init_ai_players()
             logger.info("Game initialized")
         except Exception as e:
@@ -225,7 +240,7 @@ class Game:
             for player in players:
                 ai_id = "ai_1" if player == "player_1" else "ai_2"
                 ai_settings = config_dict["ai_configs"].get(player, {})
-                ai_type = ai_settings.get("ai_type", "advanced_ai")
+                ai_type = ai_settings.get("ai_type", player_1_ai_type if player == "player_1" else player_2_ai_type)
                 model_name = ai_settings.get("ai_code", ai_type)
                 logger.debug(f"Initializing AI for {player}: ai_id={ai_id}, ai_type={ai_type}, model_name={model_name}")
                 if ai_type and ai_type != "none":
@@ -363,7 +378,7 @@ class Game:
             if self.multi_jump_active and self.selected:
                 moves = get_piece_moves(self.board, *self.selected, player)
                 return {(self.selected[0], self.selected[1], to_row, to_col): skipped for (to_row, to_col), skipped in moves.items()}
-            moves = ai.get_valid_moves(self.board.board)
+            moves = ai.get_valid_moves(self.board.board, )
             return {(move[0], move[1], move[2], move[3]): [] for move in moves if len(move) == 4}
         except Exception as e:
             log_to_json(
