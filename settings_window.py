@@ -264,8 +264,7 @@ class GameInterface:
         self.screen.blit(footer_text, footer_rect)
 
     def draw_side_panel(self):
-        panel_rect = pygame.Rect(BOARD_WIDTH + BORDER_THICKNESS * 2, MENU_HEIGHT, PANEL_WIDTH,
-                                 WINDOW_HEIGHT - MENU_HEIGHT - 30)
+        panel_rect = pygame.Rect(BOARD_WIDTH + BORDER_THICKNESS * 2, MENU_HEIGHT, PANEL_WIDTH, WINDOW_HEIGHT - MENU_HEIGHT - 30)
         pygame.draw.rect(self.screen, LIGHT_GRAY, panel_rect)
         y = MENU_HEIGHT + 20
         result_title = self.font.render(LANGUAGES[self.settings.language]["game_result"], True, BLACK)
@@ -280,13 +279,11 @@ class GameInterface:
             else:
                 result_text = LANGUAGES[self.settings.language]["ai_wins"]
             result_display = self.small_font.render(result_text, True, BLACK)
-            result_display_rect = result_display.get_rect(
-                center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH // 2, y))
+            result_display_rect = result_display.get_rect(center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH // 2, y))
             self.screen.blit(result_display, result_display_rect)
         y += 80
 
-        player_1_name = self.settings.player_1_name if self.settings.game_mode in ["human_vs_human",
-                                                                                   "human_vs_ai"] else self.settings.ai_1_name
+        player_1_name = self.settings.player_1_name if self.settings.game_mode in ["human_vs_human", "human_vs_ai"] else self.settings.ai_1_name
         player_2_name = self.settings.player_2_name if self.settings.game_mode == "human_vs_human" else self.settings.ai_2_name
 
         if self.player_1_image_surface:
@@ -297,29 +294,23 @@ class GameInterface:
         vs_font = pygame.font.SysFont('Arial', 24, bold=True)
         vs_text = vs_font.render("vs", True, BLUE)
         vs_text.set_alpha(200)
-        vs_rect = vs_text.get_rect(
-            center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH // 2, y + PLAYER_IMAGE_SIZE // 2))
-        pygame.draw.rect(self.screen, LIGHT_GRAY,
-                         (vs_rect.x - 5, vs_rect.y - 5, vs_rect.width + 10, vs_rect.height + 10), border_radius=5)
+        vs_rect = vs_text.get_rect(center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH // 2, y + PLAYER_IMAGE_SIZE // 2))
+        pygame.draw.rect(self.screen, LIGHT_GRAY, (vs_rect.x - 5, vs_rect.y - 5, vs_rect.width + 10, vs_rect.height + 10), border_radius=5)
         self.screen.blit(vs_text, vs_rect)
 
         if self.player_2_image_surface:
-            self.screen.blit(self.player_2_image_surface,
-                             (BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE, y))
+            self.screen.blit(self.player_2_image_surface, (BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE, y))
         else:
-            self.draw_default_image(player_2_name,
-                                    BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE, y)
+            self.draw_default_image(player_2_name, BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE, y)
 
         y += 15
 
         player_1_name_text = self.small_font.render(player_1_name, True, BLACK)
-        player_1_name_rect = player_1_name_text.get_rect(
-            center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + 20 + PLAYER_IMAGE_SIZE // 2, y + PLAYER_IMAGE_SIZE + 10))
+        player_1_name_rect = player_1_name_text.get_rect(center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + 20 + PLAYER_IMAGE_SIZE // 2, y + PLAYER_IMAGE_SIZE + 10))
         self.screen.blit(player_1_name_text, player_1_name_rect)
 
         player_2_name_text = self.small_font.render(player_2_name, True, BLACK)
-        player_2_name_rect = player_2_name_text.get_rect(center=(
-        BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE // 2, y + PLAYER_IMAGE_SIZE + 10))
+        player_2_name_rect = player_2_name_text.get_rect(center=(BOARD_WIDTH + BORDER_THICKNESS * 2 + PANEL_WIDTH - 20 - PLAYER_IMAGE_SIZE // 2, y + PLAYER_IMAGE_SIZE + 10))
         self.screen.blit(player_2_name_text, player_2_name_rect)
 
         y += PLAYER_IMAGE_SIZE + 50
@@ -402,7 +393,7 @@ class GameInterface:
         self.screen.blit(timer_1, timer_1_rect)
 
         timer_2 = bold_font.render(f"{int(player_2_time)} s", True, BLACK if self.game.turn else GRAY)
-        timer_2_rect = timer_2.get_rect(center=(timer_rect.x + 3 * table_rect.width // 4, timer_rect.y + timer_rect.height // 2))
+        timer_2_rect = timer_2.get_rect(center=(timer_rect.x + 3 * timer_rect.width // 4, timer_rect.y + timer_rect.height // 2))
         self.screen.blit(timer_2, timer_2_rect)
 
         y += 50
@@ -422,13 +413,13 @@ class GameInterface:
                         if pos[0] < 130:
                             ai_progress_window.create_widgets()
                             ai_progress_window.is_open = True
-                        elif 130 <= pos[0] < 260:
+                        elif 140 <= pos[0] < 260:
                             az_progress_window.create_widgets()
                             az_progress_window.is_open = True
-                        elif 260 <= pos[0] < 355:
+                        elif 270 <= pos[0] < 355:
                             settings_window.create_widgets()
                             settings_window.is_open = True
-                        elif 355 <= pos[0] < 420:
+                        elif 365 <= pos[0] < 410:
                             help_window.create_widgets()
                             help_window.is_open = True
                         elif 420 <= pos[0] < 480:
