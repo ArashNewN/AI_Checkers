@@ -18,7 +18,7 @@ config = load_config()
 # تنظیم لاگ‌گیری
 logging.basicConfig(
     level=logging.INFO,
-    format='%(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(), logging.FileHandler('train.log')]
 )
 logger = logging.getLogger(__name__)

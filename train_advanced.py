@@ -1,5 +1,6 @@
 # train.py
 import torch
+from .alphazero_ai import AlphaZeroAI, train_alphazero
 from .checkers_game import CheckersGame
 
 game = CheckersGame()

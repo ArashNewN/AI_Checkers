@@ -9,7 +9,7 @@ import json
 import gzip
 from contextlib import closing
 from time import time
-from .config import load_ai_config
+from .config import load_config
 
 try:
     mp.set_start_method('spawn', force=True)
@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 class MCTS:
     def __init__(self, ai, game, neural_net):
-        self.config = self._load_config()
-        mcts_params = self.config["mcts_params"]
+        config = load_config()
+        mcts_params = config["mcts_params"]
         self.ai = ai
         self.game = game
         self.neural_net = neural_net
@@ -53,23 +53,6 @@ class MCTS:
         if torch.cuda.is_available():
             mp.set_sharing_strategy('file_system')
             logger.info(f"GPU available: {torch.cuda.get_device_name(0)}")
-
-    def _load_config(self):
-        """بارگذاری و اعتبارسنجی تنظیمات MCTS از ai_config.json"""
-        config = load_ai_config()
-        if "mcts_params" not in config:
-            raise KeyError("Missing mcts_params in ai_config.json")
-
-        mcts_params = config["mcts_params"]
-        required_params = [
-            "c_puct", "num_simulations", "max_cache_size",
-            "num_processes", "cache_save_interval", "cache_file"
-        ]
-        for param in required_params:
-            if param not in mcts_params:
-                raise KeyError(f"Missing {param} in mcts_params in ai_config.json")
-
-        return {"mcts_params": mcts_params}
 
     def _load_cache(self):
         logger.info(f"Attempting to load cache from {self.cache_file}")
