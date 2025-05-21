@@ -1168,11 +1168,23 @@ class SettingsWindow(BaseWindow):
         self.board_color_2_var.set(rgb_to_hex(self.temp_settings.board_color_2))
         self.player_1_ai_type_var.set(self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none"))
         self.player_2_ai_type_var.set(self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none"))
-
-        # استفاده از ConfigManager برای سطح توانایی
-        self.player_1_ability_var.set(self.config_manager.get_ability_level_label("player_1", self.settings.language))
-        self.player_2_ability_var.set(self.config_manager.get_ability_level_label("player_2", self.settings.language))
-
+        ability_mapping = {
+            1: "very_weak",
+            3: "weak",
+            5: "medium",
+            7: "strong",
+            9: "very_strong"
+        }
+        self.player_1_ability_var.set(
+            LANGUAGES[self.settings.language][
+                ability_mapping.get(self.temp_settings.ai_configs["player_1"]["ability_level"], "medium")
+            ]
+        )
+        self.player_2_ability_var.set(
+            LANGUAGES[self.settings.language][
+                ability_mapping.get(self.temp_settings.ai_configs["player_2"]["ability_level"], "medium")
+            ]
+        )
         self.update_color_button(self.p1_color_button, self.player_1_color_var.get())
         self.update_color_button(self.p2_color_button, self.player_2_color_var.get())
         self.update_color_button(self.b1_color_button, self.board_color_1_var.get())
@@ -1343,6 +1355,7 @@ class AboutWindow(BaseWindow):
             command=self.close,
             style="Custom.TButton"
         ).pack(pady=10)
+
 
 class AdvancedConfigWindow(tk.Toplevel):
     def __init__(self, parent, settings, temp_settings, language):

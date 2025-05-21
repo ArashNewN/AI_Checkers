@@ -1,15 +1,14 @@
-# config.py
 import json
 import sys
 from pathlib import Path
 import importlib
 import logging
 from typing import Dict, Optional
-from .constants import LANGUAGES, DEFAULT_AI_PARAMS
+from .constants import LANGUAGES
 
 logger = logging.getLogger(__name__)
 
-# نگاشت پیش‌فرض سطوح توانایی با کلیدهای رشته‌ای
+# Default ability levels mapping with string keys
 DEFAULT_ABILITY_LEVELS: Dict[str, str] = {
     "1": "very_weak",
     "3": "weak",
@@ -18,7 +17,21 @@ DEFAULT_ABILITY_LEVELS: Dict[str, str] = {
     "9": "very_strong"
 }
 
-# کلاس LazyLoader برای بارگذاری تنبل ماژول‌ها
+# Default AI parameters
+DEFAULT_AI_PARAMS: Dict[str, Dict] = {
+    "general": {
+        "max_depth": 3,
+        "time_limit": 5.0,
+        "use_heuristic": True
+    },
+    "evaluation": {
+        "piece_value": 1.0,
+        "king_value": 3.0,
+        "mobility_weight": 0.1
+    }
+}
+
+# LazyLoader class for lazy-loading modules
 class LazyLoader:
     def __init__(self, module_name: str, class_name: str):
         self.module_name = module_name
@@ -39,22 +52,25 @@ class LazyLoader:
                 raise
         return self._class
 
-# کلاس ConfigManager برای مدیریت مرکزی تنظیمات
+# ConfigManager class for centralized configuration management
 class ConfigManager:
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ConfigManager, cls).__new__(cls)
-            cls._instance._initialize()
+            cls._instance.__init__()
         return cls._instance
 
-    def _initialize(self):
+    def __init__(self):
+        if hasattr(self, '_initialized'):  # Prevent re-initialization
+            return
         self._config_cache: Optional[Dict] = None
         self._ai_config_cache: Optional[Dict] = None
         self._ai_specific_config_cache: Dict[str, Dict] = {}
         self._ai_module_cache: Dict[str, LazyLoader] = {}
         self.project_root: Optional[Path] = None
+        self._initialized = True
 
     def get_project_root(self) -> Path:
         if self.project_root is None:
@@ -274,39 +290,29 @@ class ConfigManager:
             ai_config = default_ai_config
             config_changed = True
 
-        # اعتبارسنجی نگاشت ability_levels
-        if "ability_levels" not in ai_config or not isinstance(ai_config["ability_levels"], dict):
-            ai_config["ability_levels"] = DEFAULT_ABILITY_LEVELS
+        # Ensure ai_types is a dictionary
+        if not isinstance(ai_config.get("ai_types", {}), dict):
+            logger.error(f"AI types is not a dictionary, resetting to empty dict")
+            ai_config["ai_types"] = {}
             config_changed = True
-        else:
-            for level, label in DEFAULT_ABILITY_LEVELS.items():
-                if level not in ai_config["ability_levels"]:
-                    ai_config["ability_levels"][level] = label
-                    config_changed = True
 
         # Validate AI types
         used_codes = set()
         valid_ai_types = {}
-        ai_types = ai_config.get("ai_types", {})
-        if not isinstance(ai_types, dict):
-            logger.error(f"AI types is not a dictionary: {ai_types}, resetting to empty dict")
-            ai_config["ai_types"] = {}
-            config_changed = True
-        else:
-            for ai_type, ai_info in ai_types.items():
-                if not isinstance(ai_info, dict):
-                    logger.warning(f"Invalid AI info for {ai_type}, skipping")
-                    continue
-                code = ai_info.get("code", "")
-                if not code or len(code) != 2:
-                    logger.warning(f"Invalid or missing code for AI {ai_type}, skipping")
-                    continue
-                if code in used_codes:
-                    logger.warning(f"Duplicate AI code detected: {code}, skipping")
-                    continue
-                used_codes.add(code)
-                valid_ai_types[ai_type] = ai_info
-                logger.debug(f"Validated AI: type {ai_type}, code {code}")
+        for ai_type, ai_info in ai_config["ai_types"].items():
+            if not isinstance(ai_info, dict):
+                logger.warning(f"Invalid AI info for {ai_type}, skipping")
+                continue
+            code = ai_info.get("code", "")
+            if not code or len(code) != 2:
+                logger.warning(f"Invalid or missing code for AI {ai_type}, skipping")
+                continue
+            if code in used_codes:
+                logger.warning(f"Duplicate AI code detected: {code}, skipping")
+                continue
+            used_codes.add(code)
+            valid_ai_types[ai_type] = ai_info
+            logger.debug(f"Validated AI: type {ai_type}, code {code}")
 
         if ai_config["ai_types"] != valid_ai_types:
             ai_config["ai_types"] = valid_ai_types
@@ -333,7 +339,7 @@ class ConfigManager:
                 self._ai_module_cache[ai_type] = LazyLoader(full_module_name, class_name)
                 valid_ai_types[ai_type] = ai_info
                 logger.debug(f"AI type {ai_type} prepared for lazy loading: module {full_module_name}, class {class_name}")
-                ai_code = ai_info.get("code")
+                ai_code = ai_info.get("code", "")
                 if ai_code:
                     ai_specific_config_path = self.get_ai_specific_config_path(ai_code)
                     if not ai_specific_config_path.exists():
@@ -353,10 +359,17 @@ class ConfigManager:
         for player in ["player_1", "player_2"]:
             player_config = ai_config["ai_configs"].get(player, {})
             if not isinstance(player_config, dict):
-                player_config = {}
+                player_config = {
+                    "ai_type": "none",
+                    "ai_code": None,
+                    "ability_level": 5,
+                    "params": DEFAULT_AI_PARAMS.copy()
+                }
+                ai_config["ai_configs"][player] = player_config
+                config_changed = True
             ai_type = player_config.get("ai_type", "none")
             if ai_type != "none" and ai_type in valid_ai_types:
-                ai_code = valid_ai_types[ai_type]["code"]
+                ai_code = valid_ai_types[ai_type].get("code", "")
                 player_config["ai_code"] = ai_code
                 ai_specific_config = self.load_ai_specific_config(ai_code)
                 params = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
@@ -387,9 +400,20 @@ class ConfigManager:
         """Saves AI settings to ai_config.json."""
         ai_config_path = self.get_ai_config_path()
         try:
+            # Ensure all values are JSON-serializable
+            def make_serializable(obj):
+                if isinstance(obj, Path):
+                    return str(obj)
+                elif isinstance(obj, dict):
+                    return {k: make_serializable(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [make_serializable(item) for item in obj]
+                return obj
+
+            serializable_config = make_serializable(ai_config)
             ai_config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(ai_config_path, "w", encoding="utf- CLOCK") as f:
-                json.dump(ai_config, f, ensure_ascii=False, indent=4)
+            with open(ai_config_path, "w", encoding="utf-8") as f:
+                json.dump(serializable_config, f, ensure_ascii=False, indent=4)
             logger.debug(f"AI config saved to {ai_config_path}")
             self._ai_config_cache = ai_config
         except Exception as e:
@@ -527,7 +551,7 @@ class ConfigManager:
                 LANGUAGES[language][key]: str(value) for value, key in DEFAULT_ABILITY_LEVELS.items()
             }
 
-# توابع wrapper برای سازگاری با کد موجود
+# Wrapper functions for backward compatibility
 _config_manager = ConfigManager()
 
 def get_project_root() -> Path:

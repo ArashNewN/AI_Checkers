@@ -1,11 +1,7 @@
-# rewards.py
-import json
-from pathlib import Path
+from typing import Dict, Optional
 from .checkers_core import get_piece_moves, log_to_json, make_move
 from .config import load_config, load_ai_config, DEFAULT_AI_PARAMS
 from .utils import CheckersError
-
-
 
 class RewardCalculator:
     """Calculates rewards for the checkers game based on game state.
@@ -17,27 +13,31 @@ class RewardCalculator:
         weights (dict): Weights for different reward components.
         end_game_rewards (dict): Rewards for end-game outcomes.
     """
-    def __init__(self, game, ai_id=None):
+    def __init__(self, game, ai_id: Optional[str] = None):
         self.game = game
         self.ai_id = ai_id
         config = load_config()
         self.board_size = config.get("board_size", 8)
         self.weights, self.end_game_rewards = self._load_config()
 
-    def _load_config(self):
+    def _load_config(self) -> tuple[Dict[str, float], Dict[str, float]]:
+        """Loads reward weights and end-game rewards from configuration."""
         player_key = "player_1" if self.ai_id == "ai_1" else "player_2"
         try:
             ai_config = load_ai_config()
-            params = ai_config["ai_configs"].get(player_key, {}).get("params", DEFAULT_AI_PARAMS)
+            player_config = ai_config["ai_configs"].get(player_key, {})
+            params = player_config.get("params", DEFAULT_AI_PARAMS)
             weights = params.get("reward_weights", DEFAULT_AI_PARAMS["reward_weights"])
             end_game_rewards = params.get("end_game_rewards", DEFAULT_AI_PARAMS["end_game_rewards"])
+            if not isinstance(weights, dict) or not isinstance(end_game_rewards, dict):
+                raise ValueError("Reward weights or end-game rewards are not dictionaries")
             log_to_json(f"Loaded config for {player_key} for AI {self.ai_id}", level="INFO")
             return weights, end_game_rewards
         except Exception as e:
             log_to_json(f"Error loading config: {str(e)}, using default weights", level="ERROR")
             return DEFAULT_AI_PARAMS["reward_weights"], DEFAULT_AI_PARAMS["end_game_rewards"]
 
-    def get_reward(self, player_number=None):
+    def get_reward(self, player_number: Optional[int] = None) -> float:
         """Calculates the total reward for the current game state.
 
         Args:
@@ -60,7 +60,7 @@ class RewardCalculator:
             return self._end_game_reward(player_number)
         return self._in_game_reward(player_number)
 
-    def _end_game_reward(self, player_number):
+    def _end_game_reward(self, player_number: int) -> float:
         """Calculates the reward for end-game states.
 
         Args:
@@ -79,7 +79,7 @@ class RewardCalculator:
             return self.end_game_rewards['loss']
         return self.end_game_rewards['draw']
 
-    def _in_game_reward(self, player_number):
+    def _in_game_reward(self, player_number: int) -> float:
         """Calculates the reward for in-game states.
 
         Args:
@@ -99,7 +99,7 @@ class RewardCalculator:
         reward += self._safety_penalty_reward(player_number) * self.weights['safety_penalty']
         return reward
 
-    def _piece_difference_reward(self, player_number):
+    def _piece_difference_reward(self, player_number: int) -> float:
         """Calculates reward based on piece count difference.
 
         Args:
@@ -120,7 +120,7 @@ class RewardCalculator:
         )
         return player_pieces - opponent_pieces
 
-    def _king_bonus_reward(self, player_number):
+    def _king_bonus_reward(self, player_number: int) -> float:
         """Calculates reward based on king count.
 
         Args:
@@ -138,7 +138,7 @@ class RewardCalculator:
                     king_bonus += 1 if is_player else -1
         return king_bonus
 
-    def _position_bonus_reward(self, player_number):
+    def _position_bonus_reward(self, player_number: int) -> float:
         """Calculates reward based on piece positions (closer to king row).
 
         Args:
@@ -158,7 +158,7 @@ class RewardCalculator:
                         self.board_size - distance_to_king)
         return position_bonus
 
-    def _capture_bonus_reward(self, player_number):
+    def _capture_bonus_reward(self, player_number: int) -> float:
         """Calculates reward for possible captures.
 
         Args:
@@ -178,7 +178,7 @@ class RewardCalculator:
                         capture_bonus += 1
         return capture_bonus
 
-    def _multi_jump_bonus_reward(self, player_number):
+    def _multi_jump_bonus_reward(self, player_number: int) -> float:
         """Calculates reward for possible multi-jumps.
 
         Args:
@@ -197,7 +197,7 @@ class RewardCalculator:
                     multi_jump_bonus += multi_jump_count
         return multi_jump_bonus
 
-    def _count_multi_jumps(self, row, col, visited, player):
+    def _count_multi_jumps(self, row: int, col: int, visited: set, player: int) -> int:
         """Counts possible multi-jumps for a piece using a temporary board state.
 
         Args:
@@ -230,7 +230,7 @@ class RewardCalculator:
 
         return multi_jump_count
 
-    def _king_capture_bonus_reward(self, player_number):
+    def _king_capture_bonus_reward(self, player_number: int) -> float:
         """Calculates reward for captures leading to king promotion.
 
         Args:
@@ -254,7 +254,7 @@ class RewardCalculator:
                                 king_capture_bonus += 1
         return king_capture_bonus
 
-    def _mobility_bonus_reward(self, player_number):
+    def _mobility_bonus_reward(self, player_number: int) -> float:
         """Calculates reward for piece mobility.
 
         Args:
@@ -274,7 +274,7 @@ class RewardCalculator:
                     mobility_bonus += len(moves) if is_player else -len(moves)
         return mobility_bonus
 
-    def _safety_penalty_reward(self, player_number):
+    def _safety_penalty_reward(self, player_number: int) -> float:
         """Calculates penalty for pieces at risk of being captured.
 
         Args:
