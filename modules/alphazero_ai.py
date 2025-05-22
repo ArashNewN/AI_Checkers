@@ -1,19 +1,16 @@
 import logging
 import os
-import json
-import numpy as np
 import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import deque
 from pathlib import Path
 
 from .base_ai import BaseAI
-from .config import load_ai_config
+from pyfile.config import load_ai_config
 from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
-from .checkers_game import CheckersGame
+from pyfile.checkers_game import CheckersGame
 
 AI_METADATA = {
     "type": "alphazero_ai",

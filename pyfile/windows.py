@@ -2,10 +2,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, colorchooser
 from typing import Literal
-from .settings import GameSettings
-from .constants import LANGUAGES
-from .config import ConfigManager, DEFAULT_AI_PARAMS
-from .utils import hex_to_rgb, rgb_to_hex
 import torch
 import json
 import sys
@@ -13,9 +9,26 @@ import importlib
 from pathlib import Path
 import logging
 
-# تنظیم لاگ‌گیری
-log_dir = Path(__file__).parent.parent / "logs"
+from .settings import GameSettings
+from .constants import LANGUAGES
+from .config import ConfigManager, DEFAULT_AI_PARAMS
+from .utils import hex_to_rgb, rgb_to_hex
+
+
+# تنظیم کدپیج در ویندوز برای پشتیبانی از utf-8
+if sys.platform == "win32":
+    import locale
+    locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
+
+# نمونه ConfigManager برای مدیریت مرکزی تنظیمات
+_config_manager = ConfigManager()
+
+# مسیر پروژه
+project_dir = _config_manager.get_project_root()
+log_dir = project_dir / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
+
+# تنظیم لاگ‌گیری
 logging.basicConfig(
     level=logging.DEBUG,
     filename=log_dir / "app.log",
@@ -24,11 +37,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# نمونه ConfigManager برای مدیریت مرکزی تنظیمات
-_config_manager = ConfigManager()
-
-# مسیر پروژه
-project_dir = Path(__file__).parent.parent
 if str(project_dir) not in sys.path:
     sys.path.append(str(project_dir))
 
@@ -41,7 +49,6 @@ def configure_styles():
     style.configure("TCombobox", font=("Arial", 10))
 
 class BaseWindow:
-    # بدون تغییر
     def __init__(self, interface, root=None):
         self.interface = interface
         self.settings = interface.settings if interface else None
@@ -55,9 +62,9 @@ class BaseWindow:
                 raise ValueError("Invalid config format, expected a dictionary")
         except Exception as e:
             logger.error(f"Error loading config: {e}, using default")
-            self.config = _config_manager.get_default_config()
+            self.config = _config_manager.load_config()
         self.project_dir = project_dir
-        self.pth_dir = project_dir / self.config.get("pth_dir", "pth")
+        self.pth_dir = project_dir / "pth"
         configure_styles()
 
     def create_window(self, title, width=None, height=None):
@@ -97,13 +104,20 @@ class BaseWindow:
                     pass
 
     def log_error(self, message):
-        logger.error(message)
-        if self.window and self.is_open:
-            messagebox.showerror(
-                LANGUAGES[self.settings.language]["error"],
-                message,
-                parent=self.window
-            )
+        try:
+            logger.error(message, extra={"encoding": "utf-8"})
+            _config_manager.log_to_json(message, level="ERROR")
+            if self.window and self.is_open:
+                messagebox.showerror(
+                    LANGUAGES[self.settings.language]["error"],
+                    message,
+                    parent=self.window
+                )
+        except UnicodeEncodeError as e:
+            logger.error(f"UnicodeEncodeError in log_error: {str(e)}")
+            safe_message = message.encode("utf-8").decode("utf-8", errors="replace")
+            logger.error(safe_message)
+            _config_manager.log_to_json(safe_message, level="ERROR")
 
 class SettingsWindow(BaseWindow):
     def __init__(self, interface, root=None):
@@ -112,9 +126,7 @@ class SettingsWindow(BaseWindow):
         self.copy_current_settings()
         self.ai_types = ["none"]
         self.entries = {}
-        # بارگذاری اولیه ماژول‌های AI در زمان ساخت
         self.initialize_ai_modules()
-        # تعریف متغیرهای نمونه‌ای (بدون تغییر)
         self.ai_list = None
         self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
         self.ai_vs_ai_subframe = None
@@ -154,7 +166,6 @@ class SettingsWindow(BaseWindow):
         self.timer_duration_frame = None
         self.timer_var = tk.StringVar(value="with_timer" if self.temp_settings.use_timer else "no_timer")
         self.timer_var_duration = tk.IntVar(value=self.temp_settings.game_time)
-        # متغیرهای تنظیمات پیشرفته (بدون تغییر)
         self.player1_learning_rate_var = tk.DoubleVar(value=0.001)
         self.player1_gamma_var = tk.DoubleVar(value=0.99)
         self.player1_batch_size_var = tk.IntVar(value=64)
@@ -181,28 +192,28 @@ class SettingsWindow(BaseWindow):
         self.player2_safety_penalty_var = tk.DoubleVar(value=-0.1)
 
     def initialize_ai_modules(self):
-        """بارگذاری اولیه ماژول‌های AI در زمان ساخت SettingsWindow"""
         try:
-            from a.base_ai import BaseAI
+            from modules.base_ai import BaseAI
             config = _config_manager.load_config()
-            ai_dirs = config.get("ai_module_dirs", ["a"])
+            ai_dirs = config.get("ai_module_dirs", ["modules"])
             ai_modules = []
 
             for ai_dir in ai_dirs:
                 module_dir = self.project_dir / ai_dir
+                module_dir.mkdir(parents=True, exist_ok=True)
                 for py_file in module_dir.glob("*.py"):
                     module_name = py_file.stem
                     if module_name in ["__init__", "windows", "base_ai"]:
                         logger.debug(f"Skipping file: {module_name}")
                         continue
                     try:
-                        # بارگذاری مستقیم ماژول به جای استفاده از LazyLoader
-                        module = importlib.import_module(f"{ai_dir}.{module_name}")
-                        logger.debug(f"Loaded module: {ai_dir}.{module_name}")
+                        module_path = f"{ai_dir.replace('/', '.')}.{module_name}"
+                        module = importlib.import_module(module_path)
+                        logger.debug(f"Loaded module: {module_path}")
                         for attr_name in dir(module):
                             attr = getattr(module, attr_name)
                             if isinstance(attr, type) and issubclass(attr, BaseAI) and attr != BaseAI:
-                                metadata = getattr(attr, "metadata", None)
+                                metadata = getattr(attr, "metadata", None) or attr.get_metadata()
                                 if metadata and all(key in metadata for key in ["type", "description", "code"]):
                                     ai_modules.append({
                                         "display": module_name,
@@ -215,7 +226,8 @@ class SettingsWindow(BaseWindow):
                                 else:
                                     logger.debug(f"Skipped {module_name}.{attr_name}: Invalid metadata")
                     except Exception as e:
-                        logger.error(f"Error loading {ai_dir}.{module_name}: {str(e)}")
+                        logger.error(f"Error loading {module_path}: {str(e)}")
+                        _config_manager.log_to_json(f"Error loading {module_path}: {str(e)}", level="ERROR")
 
             ai_config = _config_manager.load_ai_config()
             for module in ai_modules:
@@ -224,7 +236,7 @@ class SettingsWindow(BaseWindow):
                 used_codes = {info.get("code") for info in ai_config["ai_types"].values()}
                 if ai_type not in ai_config["ai_types"] and code not in used_codes:
                     ai_config["ai_types"][ai_type] = {
-                        "module": f"{ai_dir}.{module['display']}",
+                        "module": f"modules.{module['display']}",
                         "class": module["class_name"],
                         "description": module["default_description"],
                         "code": code
@@ -236,16 +248,17 @@ class SettingsWindow(BaseWindow):
             _config_manager.save_ai_config(ai_config)
             self.ai_types = ["none"] + list(ai_config["ai_types"].keys())
             logger.debug(f"Initialized ai_types: {self.ai_types}")
+            _config_manager.log_to_json("AI modules initialized", level="INFO", extra_data={"ai_types": self.ai_types})
         except Exception as e:
             logger.error(f"Error in initialize_ai_modules: {e}")
             self.ai_types = ["none"]
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
+            _config_manager.log_to_json(f"Error in initialize_ai_modules: {str(e)}", level="ERROR")
 
     def create_widgets(self):
-        # بدون تغییر
         self.create_window(LANGUAGES[self.settings.language]["settings"],
-                           self.config.get("settings_window_width", 500),
-                           self.config.get("settings_window_height", 750))
+                          self.config.get("settings_window_width", 500),
+                          self.config.get("settings_window_height", 750))
         notebook = ttk.Notebook(self.window)
         notebook.pack(fill="both", expand=True)
 
@@ -260,32 +273,31 @@ class SettingsWindow(BaseWindow):
 
         side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
         ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["save_changes"],
-                   command=self.save, style="Custom.TButton").pack(side=side, padx=5)
+                  command=self.save, style="Custom.TButton").pack(side=side, padx=5)
         ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["close"],
-                   command=self.close, style="Custom.TButton").pack(side=side, padx=5)
+                  command=self.close, style="Custom.TButton").pack(side=side, padx=5)
         ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["reset_settings"],
-                   command=self.reset, style="Custom.TButton").pack(side=side, padx=5)
+                  command=self.reset, style="Custom.TButton").pack(side=side, padx=5)
 
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.update_ai_dropdowns()
 
     def load_ai_config(self):
-        # بدون تغییر، اما از ai_types اولیه‌سازی شده استفاده می‌کند
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
                 raise ValueError("Invalid ai_config format, expected a dictionary")
             self.ai_types = ["none"] + list(ai_config.get("ai_types", {}).keys())
-            self.temp_settings.ai_configs = ai_config.get("ai_configs", _config_manager.load_config())
+            self.temp_settings.ai_configs = ai_config.get("ai_configs", _config_manager.load_ai_config())
         except Exception as e:
             logger.error(f"Error loading ai_config: {e}, using default")
             self.ai_types = ["none"]
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
+            _config_manager.log_to_json(f"Error loading ai_config: {str(e)}", level="ERROR")
         logger.debug(f"Loaded ai_types: {self.ai_types}")
 
     @staticmethod
     def check_ai_module(ai_type: str) -> bool:
-        # بدون تغییر
         if ai_type == "none":
             return True
         try:
@@ -298,7 +310,6 @@ class SettingsWindow(BaseWindow):
             return False
 
     def update_ai_dropdowns(self):
-        # بدون تغییر
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
@@ -333,9 +344,9 @@ class SettingsWindow(BaseWindow):
                 logger.info(f"Reset player_2 AI to 'none' (was {self.player_2_ai_type_var.get()})")
         except Exception as e:
             logger.error(f"Error updating AI dropdowns: {e}")
+            _config_manager.log_to_json(f"Error updating AI dropdowns: {str(e)}", level="ERROR")
 
     def _update_player_ai_config(self, player: str, ai_type: str):
-        # بدون تغییر
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
@@ -364,16 +375,12 @@ class SettingsWindow(BaseWindow):
                 self.temp_settings.ai_configs[player]["ability_level"] = 5
 
             logger.debug(f"Updated {player} temp_settings: {self.temp_settings.ai_configs[player]}")
+            _config_manager.log_to_json(f"Updated AI config for {player}", level="INFO", extra_data={"ai_type": ai_type})
         except Exception as e:
             logger.error(f"Error updating player AI config for {player}: {e}")
-
-    def search_ai_modules(self):
-        # این متد دیگر استفاده نمی‌شود، زیرا بارگذاری در initialize_ai_modules انجام می‌شود
-        logger.warning("search_ai_modules is deprecated, use initialize_ai_modules instead")
-        pass
+            _config_manager.log_to_json(f"Error updating player AI config for {player}: {str(e)}", level="ERROR")
 
     def setup_ai_tab(self, notebook):
-        # بدون تغییر، اما نیازی به فراخوانی search_ai_modules نیست
         ai_frame = ttk.Frame(notebook, padding="10")
         notebook.add(ai_frame, text=LANGUAGES[self.settings.language]["ai_settings_tab"])
 
@@ -394,11 +401,11 @@ class SettingsWindow(BaseWindow):
             player_1_ai_type = "none"
         self.player_1_ai_type_var.set(player_1_ai_type)
         self.player_1_ai_menu = ttk.OptionMenu(player_1_container, self.player_1_ai_type_var,
-                                               player_1_ai_type, *self.ai_types)
+                                              player_1_ai_type, *self.ai_types)
         self.player_1_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_1_ai_menu["menu"].config(font=("Arial", 10))
         self.player_1_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_1",
-                                                                                         self.player_1_ai_type_var.get()))
+                                                                                        self.player_1_ai_type_var.get()))
 
         ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
         ability_mapping = {
@@ -431,11 +438,11 @@ class SettingsWindow(BaseWindow):
             player_2_ai_type = "none"
         self.player_2_ai_type_var.set(player_2_ai_type)
         self.player_2_ai_menu = ttk.OptionMenu(player_2_container, self.player_2_ai_type_var,
-                                               player_2_ai_type, *self.ai_types)
+                                              player_2_ai_type, *self.ai_types)
         self.player_2_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_2_ai_menu["menu"].config(font=("Arial", 10))
         self.player_2_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_2",
-                                                                                         self.player_2_ai_type_var.get()))
+                                                                                        self.player_2_ai_type_var.get()))
 
         ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
         player_2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
@@ -462,7 +469,6 @@ class SettingsWindow(BaseWindow):
         self.update_ai_list()
 
     def update_ai_list(self):
-        # بدون تغییر
         self.ai_list.delete(*self.ai_list.get_children())
         try:
             ai_config = _config_manager.load_ai_config()
@@ -474,8 +480,8 @@ class SettingsWindow(BaseWindow):
                 self.ai_list.insert("", "end", values=(ai_type, code, description))
         except Exception as e:
             logger.error(f"Error updating ai_list: {e}")
+            _config_manager.log_to_json(f"Error updating ai_list: {str(e)}", level="ERROR")
 
-    # سایر متدها (بدون تغییر)
     def copy_current_settings(self):
         try:
             config = _config_manager.load_config()
@@ -495,6 +501,7 @@ class SettingsWindow(BaseWindow):
         except Exception as e:
             logger.error(f"Error copying current settings: {e}")
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
+            _config_manager.log_to_json(f"Error copying current settings: {str(e)}", level="ERROR")
 
     def update_ability_levels(self, player: str):
         ability_levels = {
@@ -511,8 +518,10 @@ class SettingsWindow(BaseWindow):
             elif player == "player_2":
                 selected_level = self.player_2_ability_var.get()
                 self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
+            _config_manager.log_to_json(f"Updated ability level for {player}", level="INFO", extra_data={"level": selected_level})
         except Exception as e:
             logger.error(f"Error updating ability levels for {player}: {e}")
+            _config_manager.log_to_json(f"Error updating ability levels for {player}: {str(e)}", level="ERROR")
 
     def update_temp_settings(self, key: str, value):
         try:
@@ -575,8 +584,10 @@ class SettingsWindow(BaseWindow):
                         self.temp_settings.ai_configs["player_2"]["params"] = ai_specific_config.get("player_2", DEFAULT_AI_PARAMS.copy())
             elif key == "ai_pause_time":
                 self.temp_settings.ai_pause_time = value
+            _config_manager.log_to_json(f"Updated temp setting: {key}", level="INFO", extra_data={"value": value})
         except Exception as e:
             logger.error(f"Error updating temp settings for {key}: {e}")
+            _config_manager.log_to_json(f"Error updating temp settings for {key}: {str(e)}", level="ERROR")
 
     def setup_game_tab(self, notebook):
         game_frame = ttk.Frame(notebook, padding="10")
@@ -607,14 +618,14 @@ class SettingsWindow(BaseWindow):
         self.ai_vs_ai_subframe.pack(fill="x", pady=5)
         self.ai_vs_ai_var.trace("w", lambda *args: self.update_temp_settings("ai_vs_ai_mode", self.ai_vs_ai_var.get()))
         self.repeat_once_rb = ttk.Radiobutton(self.ai_vs_ai_subframe,
-                                              text=LANGUAGES[self.settings.language]["only_once"],
-                                              variable=self.ai_vs_ai_var, value="only_once",
-                                              command=self.toggle_repeat_options)
+                                             text=LANGUAGES[self.settings.language]["only_once"],
+                                             variable=self.ai_vs_ai_var, value="only_once",
+                                             command=self.toggle_repeat_options)
         self.repeat_once_rb.pack(side="left", padx=10)
         self.repeat_until_rb = ttk.Radiobutton(self.ai_vs_ai_subframe,
-                                               text=LANGUAGES[self.settings.language]["repeat_game"],
-                                               variable=self.ai_vs_ai_var, value="repeat_game",
-                                               command=self.toggle_repeat_options)
+                                              text=LANGUAGES[self.settings.language]["repeat_game"],
+                                              variable=self.ai_vs_ai_var, value="repeat_game",
+                                              command=self.toggle_repeat_options)
         self.repeat_until_rb.pack(side="left", padx=10)
 
         if self.play_with_var.get() != "ai_vs_ai":
@@ -633,7 +644,7 @@ class SettingsWindow(BaseWindow):
         start_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["starting_player"], padding=10)
         start_frame.pack(fill="x", pady=5)
         self.start_var.trace("w", lambda *args: self.update_temp_settings("player_starts",
-                                                                          self.start_var.get() == "player_1"))
+                                                                         self.start_var.get() == "player_1"))
         ttk.Radiobutton(start_frame, text=LANGUAGES[self.settings.language]["player"],
                         variable=self.start_var, value="player_1").pack(side="left", padx=10)
         ttk.Radiobutton(start_frame, text=LANGUAGES[self.settings.language]["ai"],
@@ -642,19 +653,19 @@ class SettingsWindow(BaseWindow):
         timer_frame = ttk.LabelFrame(game_frame, text=LANGUAGES[self.settings.language]["game_timer"], padding=10)
         timer_frame.pack(fill="x", pady=5)
         self.timer_var.trace("w",
-                             lambda *args: self.update_temp_settings("use_timer", self.timer_var.get() == "with_timer"))
+                            lambda *args: self.update_temp_settings("use_timer", self.timer_var.get() == "with_timer"))
         ttk.Radiobutton(timer_frame, text=LANGUAGES[self.settings.language]["no_timer"],
                         variable=self.timer_var, value="no_timer", command=self.toggle_timer).pack(side="left", padx=8)
         ttk.Radiobutton(timer_frame, text=LANGUAGES[self.settings.language]["with_timer"],
                         variable=self.timer_var, value="with_timer", command=self.toggle_timer).pack(side="left",
-                                                                                                     padx=8)
+                                                                                                    padx=8)
 
         self.timer_duration_frame = ttk.Frame(timer_frame)
         self.timer_var_duration.trace("w", lambda *args: self.update_temp_settings("game_time",
-                                                                                   self.timer_var_duration.get()))
+                                                                                  self.timer_var_duration.get()))
         ttk.Label(self.timer_duration_frame, text=LANGUAGES[self.settings.language]["game_duration"]).pack(side="left")
         self.timer_combo = ttk.Combobox(self.timer_duration_frame, textvariable=self.timer_var_duration,
-                                        state="readonly", values=["1", "2", "3", "5", "10", "20"])
+                                       state="readonly", values=["1", "2", "3", "5", "10", "20"])
         self.timer_combo.pack(side="left", padx=5)
         if self.temp_settings.use_timer:
             self.timer_duration_frame.pack(side="left", padx=5)
@@ -673,47 +684,47 @@ class SettingsWindow(BaseWindow):
         player_1_color_container = ttk.Frame(design_frame)
         player_1_color_container.pack(fill="x", pady=2)
         ttk.Label(player_1_color_container, text=LANGUAGES[self.settings.language]["player_1_color"]).pack(side="left",
-                                                                                                           padx=5)
+                                                                                                          padx=5)
         self.p1_color_button = ttk.Button(player_1_color_container, text="Choose Color",
-                                          command=lambda: self.choose_color(self.player_1_color_var, "p1_color_button"))
+                                         command=lambda: self.choose_color(self.player_1_color_var, "p1_color_button"))
         self.p1_color_button.pack(side="left", padx=5)
         self.update_color_button(self.p1_color_button, self.player_1_color_var.get())
 
         player_2_color_container = ttk.Frame(design_frame)
         player_2_color_container.pack(fill="x", pady=2)
         ttk.Label(player_2_color_container, text=LANGUAGES[self.settings.language]["player_2_color"]).pack(side="left",
-                                                                                                           padx=5)
+                                                                                                          padx=5)
         self.p2_color_button = ttk.Button(player_2_color_container, text="Choose Color",
-                                          command=lambda: self.choose_color(self.player_2_color_var, "p2_color_button"))
+                                         command=lambda: self.choose_color(self.player_2_color_var, "p2_color_button"))
         self.p2_color_button.pack(side="left", padx=5)
         self.update_color_button(self.p2_color_button, self.player_2_color_var.get())
 
         board_color_1_container = ttk.Frame(design_frame)
         board_color_1_container.pack(fill="x", pady=2)
         ttk.Label(board_color_1_container, text=LANGUAGES[self.settings.language]["board_color_1"]).pack(side="left",
-                                                                                                         padx=5)
+                                                                                                        padx=5)
         self.b1_color_button = ttk.Button(board_color_1_container, text="Choose Color",
-                                          command=lambda: self.choose_color(self.board_color_1_var, "b1_color_button"))
+                                         command=lambda: self.choose_color(self.board_color_1_var, "b1_color_button"))
         self.b1_color_button.pack(side="left", padx=5)
         self.update_color_button(self.b1_color_button, self.board_color_1_var.get())
 
         board_color_2_container = ttk.Frame(design_frame)
         board_color_2_container.pack(fill="x", pady=2)
         ttk.Label(board_color_2_container, text=LANGUAGES[self.settings.language]["board_color_2"]).pack(side="left",
-                                                                                                         padx=5)
+                                                                                                        padx=5)
         self.b2_color_button = ttk.Button(board_color_2_container, text="Choose Color",
-                                          command=lambda: self.choose_color(self.board_color_2_var, "b2_color_button"))
+                                         command=lambda: self.choose_color(self.board_color_2_var, "b2_color_button"))
         self.b2_color_button.pack(side="left", padx=5)
         self.update_color_button(self.b2_color_button, self.board_color_2_var.get())
 
         piece_style_container = ttk.Frame(design_frame)
         piece_style_container.pack(fill="x", pady=2)
         ttk.Label(piece_style_container, text=LANGUAGES[self.settings.language]["piece_style"]).pack(side="left",
-                                                                                                     padx=5)
+                                                                                                    padx=5)
         piece_styles = ["circle", "outlined_circle", "square", "diamond", "star", "custom"]
         ttk.OptionMenu(piece_style_container, self.piece_style_var, self.temp_settings.piece_style,
-                       *piece_styles,
-                       command=lambda _: self.update_temp_settings("piece_style", self.piece_style_var.get())).pack(
+                      *piece_styles,
+                      command=lambda _: self.update_temp_settings("piece_style", self.piece_style_var.get())).pack(
             side="left", fill="x", expand=True, padx=5)
 
         preview_container = ttk.Frame(design_frame)
@@ -735,7 +746,7 @@ class SettingsWindow(BaseWindow):
             entry = ttk.Entry(container, textvariable=var)
             entry.pack(side="left", fill="x", expand=True, padx=5)
             ttk.Button(container, text=LANGUAGES[self.settings.language]["upload_image"],
-                       command=lambda p=piece, v=var: self.upload_image(p, v)).pack(side="left", padx=5)
+                      command=lambda p=piece, v=var: self.upload_image(p, v)).pack(side="left", padx=5)
             self.entries[piece] = var
 
     def setup_player_tab(self, notebook):
@@ -746,43 +757,43 @@ class SettingsWindow(BaseWindow):
         anchor = "e" if side == "left" else "w"
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5,
-                                                                                              pady=5, sticky=anchor)
+                                                                                             pady=5, sticky=anchor)
         ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5,
-                                                                                    sticky="w")
+                                                                                   sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5,
-                                                                                               pady=5, sticky="w")
+                  command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5,
+                                                                                              pady=5, sticky="w")
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5,
-                                                                                              pady=5, sticky=anchor)
+                                                                                             pady=5, sticky=anchor)
         ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5,
-                                                                                    sticky="w")
+                                                                                   sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
-                                                                                               pady=5, sticky="w")
+                  command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
+                                                                                              pady=5, sticky="w")
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
-                                                                                         pady=5, sticky=anchor)
+                                                                                        pady=5, sticky=anchor)
         ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
-                                                                               sticky="w")
+                                                                              sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
-                                                                                          pady=5, sticky="w")
+                  command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
+                                                                                         pady=5, sticky="w")
 
         ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
-                                                                                         pady=5, sticky=anchor)
+                                                                                        pady=5, sticky=anchor)
         ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
-                                                                               sticky="w")
+                                                                              sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                   command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
-                                                                                          pady=5, sticky="w")
+                  command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
+                                                                                         pady=5, sticky="w")
 
     def setup_advanced_tab(self, notebook):
         advanced_frame = ttk.Frame(notebook, padding="10")
         notebook.add(advanced_frame, text=LANGUAGES[self.settings.language]["advanced_settings_tab"])
 
         ttk.Button(advanced_frame, text=LANGUAGES[self.settings.language]["open_advanced_config"],
-                   command=self.open_advanced_config_window, style="Custom.TButton").pack(pady=10)
+                  command=self.open_advanced_config_window, style="Custom.TButton").pack(pady=10)
 
     def open_advanced_config_window(self):
         AdvancedConfigWindow(self.window, self.settings, self.temp_settings, self.settings.language)
@@ -836,8 +847,10 @@ class SettingsWindow(BaseWindow):
                 LANGUAGES[self.settings.language]["info"],
                 LANGUAGES[self.settings.language]["settings_saved"]
             )
+            _config_manager.log_to_json("Advanced settings saved", level="INFO")
         except Exception as e:
             self.log_error(f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}")
+            _config_manager.log_to_json(f"Error saving advanced settings: {str(e)}", level="ERROR")
 
     def toggle_ai_vs_ai_options(self):
         if self.play_with_var.get() == "ai_vs_ai":
@@ -860,79 +873,142 @@ class SettingsWindow(BaseWindow):
         else:
             self.timer_duration_frame.pack_forget()
 
-    def choose_color(self, color_var: tk.StringVar, button: str):
-        color = colorchooser.askcolor(title="Choose Color")[1]
-        if color:
-            color_var.set(color)
-            self.update_color_button(button, color)
-
-    @staticmethod
-    def update_color_button(button: ttk.Button, color: str):
+    def choose_color(self, color_var: tk.StringVar, button_key: str):
         try:
-            style_name = f"Color_{id(button)}.TButton"
-            style = ttk.Style()
-            style.configure(style_name, background=color)
-            button.configure(style=style_name)
+            current_color = color_var.get()
+            color = colorchooser.askcolor(color=current_color, title=LANGUAGES[self.settings.language]["choose_color"],
+                                         parent=self.window)
+            if color[1]:
+                color_var.set(color[1])
+                if button_key == "p1_color_button":
+                    self.update_temp_settings("player_1_color", hex_to_rgb(color[1]))
+                elif button_key == "p2_color_button":
+                    self.update_temp_settings("player_2_color", hex_to_rgb(color[1]))
+                elif button_key == "b1_color_button":
+                    self.update_temp_settings("board_color_1", hex_to_rgb(color[1]))
+                elif button_key == "b2_color_button":
+                    self.update_temp_settings("board_color_2", hex_to_rgb(color[1]))
+                self.update_color_button(getattr(self, button_key), color[1])
+                _config_manager.log_to_json(f"Color chosen for {button_key}", level="INFO", extra_data={"color": color[1]})
         except Exception as e:
-            logger.error(f"Error updating button color: {str(e)}")
+            self.log_error(f"خطا در انتخاب رنگ: {str(e)}")
+            _config_manager.log_to_json(f"Error choosing color for {button_key}: {str(e)}", level="ERROR")
 
-    def upload_image(self, player: str, var: tk.StringVar = None):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg")])
-        if file_path:
-            if var:
-                var.set(file_path)
-            if player == "player_1":
-                self.temp_settings.player_1_image = file_path
-            elif player == "player_2":
-                self.temp_settings.player_2_image = file_path
-            elif player == "al1":
-                self.temp_settings.al1_image = file_path
-            elif player == "al2":
-                self.temp_settings.al2_image = file_path
-            elif player in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
-                setattr(self.temp_settings, f"{player}_image", file_path)
+    def update_color_button(self, button: ttk.Button, color: str):
+        try:
+            button.configure(style="Custom.TButton")
+            button.configure(text=f"{color}")
+        except Exception as e:
+            logger.error(f"Error updating color button: {e}")
+            _config_manager.log_to_json(f"Error updating color button: {str(e)}", level="ERROR")
+
+    def upload_image(self, key: str, var: tk.StringVar = None):
+        try:
+            file_path = filedialog.askopenfilename(
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.gif")],
+                parent=self.window
+            )
+            if file_path:
+                if var:
+                    var.set(file_path)
+                    self.entries[key] = var
+                else:
+                    self.entries[f"{key}_image"] = tk.StringVar(value=file_path)
+                _config_manager.log_to_json(f"Image uploaded for {key}", level="INFO", extra_data={"file_path": file_path})
+        except Exception as e:
+            self.log_error(f"خطا در آپلود تصویر برای {key}: {str(e)}")
+            _config_manager.log_to_json(f"Error uploading image for {key}: {str(e)}", level="ERROR")
 
     def update_piece_preview(self):
-        self.preview_canvas.delete("all")
-        style = self.piece_style_var.get()
-        color = hex_to_rgb(self.player_1_color_var.get())
-        center_x, center_y = 25, 25
-        radius = 20
+        try:
+            self.preview_canvas.delete("all")
+            style = self.piece_style_var.get()
+            p1_color = self.player_1_color_var.get()
+            if style == "circle":
+                self.preview_canvas.create_oval(10, 10, 40, 40, fill=p1_color, outline="black")
+            elif style == "outlined_circle":
+                self.preview_canvas.create_oval(10, 10, 40, 40, outline=p1_color, width=2)
+            elif style == "square":
+                self.preview_canvas.create_rectangle(10, 10, 40, 40, fill=p1_color, outline="black")
+            elif style == "diamond":
+                self.preview_canvas.create_polygon(25, 10, 40, 25, 25, 40, 10, 25, fill=p1_color, outline="black")
+            elif style == "star":
+                points = [25, 10, 30, 20, 40, 20, 32, 28, 35, 40, 25, 32, 15, 40, 18, 28, 10, 20, 20, 20]
+                self.preview_canvas.create_polygon(points, fill=p1_color, outline="black")
+            elif style == "custom" and self.entries.get("player_1_piece"):
+                img_path = self.entries["player_1_piece"].get()
+                if Path(img_path).exists():
+                    img = tk.PhotoImage(file=img_path).subsample(2, 2)
+                    self.preview_canvas.create_image(25, 25, image=img)
+                    self.preview_canvas.image = img
+            _config_manager.log_to_json("Piece preview updated", level="INFO", extra_data={"style": style})
+        except Exception as e:
+            logger.error(f"Error updating piece preview: {e}")
+            _config_manager.log_to_json(f"Error updating piece preview: {str(e)}", level="ERROR")
 
-        if style == "circle":
-            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
-                                            center_x + radius, center_y + radius,
-                                            fill=rgb_to_hex(color))
-        elif style == "outlined_circle":
-            self.preview_canvas.create_oval(center_x - radius, center_y - radius,
-                                            center_x + radius, center_y + radius,
-                                            fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "square":
-            self.preview_canvas.create_rectangle(center_x - radius, center_y - radius,
-                                                 center_x + radius, center_y + radius,
-                                                 fill=rgb_to_hex(color))
-        elif style == "diamond":
-            points = [
-                center_x, center_y - radius,
-                          center_x + radius, center_y,
-                center_x, center_y + radius,
-                          center_x - radius, center_y
-            ]
-            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "star":
-            points = [
-                center_x, center_y - radius,
-                          center_x + radius * 0.3, center_y - radius * 0.3,
-                          center_x + radius, center_y,
-                          center_x + radius * 0.3, center_y + radius * 0.3,
-                center_x, center_y + radius,
-                          center_x - radius * 0.3, center_y + radius * 0.3,
-                          center_x - radius, center_y,
-                          center_x - radius * 0.3, center_y - radius * 0.3
-            ]
-            self.preview_canvas.create_polygon(points, fill=rgb_to_hex(color), outline="black", width=2)
-        elif style == "custom":
-            self.preview_canvas.create_text(center_x, center_y, text="Custom", fill="black")
+    def validate_string_input(self, input_str: str) -> str:
+        try:
+            return input_str.encode("utf-8").decode("utf-8")
+        except UnicodeEncodeError:
+            logger.error(f"Invalid string input: {input_str}")
+            safe_str = input_str.encode("utf-8").decode("utf-8", errors="replace")
+            _config_manager.log_to_json(f"Invalid string input processed: {safe_str}", level="WARNING")
+            return safe_str
+
+    def reset(self):
+        try:
+            self.copy_current_settings()
+            self.lang_var.set(self.temp_settings.language)
+            self.play_with_var.set(self.temp_settings.game_mode)
+            self.ai_vs_ai_var.set(self.temp_settings.ai_vs_ai_mode)
+            self.hmh_var.set(self.temp_settings.repeat_hands)
+            self.start_var.set("player_1" if self.temp_settings.player_starts else "player_2")
+            self.timer_var.set("with_timer" if self.temp_settings.use_timer else "no_timer")
+            self.timer_var_duration.set(self.temp_settings.game_time)
+            self.piece_style_var.set(self.temp_settings.piece_style)
+            self.sound_var.set(self.temp_settings.sound_enabled)
+            self.ai_pause_var.set(self.temp_settings.ai_pause_time)
+            self.player_1_name_var.set(self.temp_settings.player_1_name)
+            self.player_2_name_var.set(self.temp_settings.player_2_name)
+            self.al1_name_var.set(self.temp_settings.al1_name)
+            self.al2_name_var.set(self.temp_settings.al2_name)
+            self.player_1_color_var.set(rgb_to_hex(self.temp_settings.player_1_color))
+            self.player_2_color_var.set(rgb_to_hex(self.temp_settings.player_2_color))
+            self.board_color_1_var.set(rgb_to_hex(self.temp_settings.board_color_1))
+            self.board_color_2_var.set(rgb_to_hex(self.temp_settings.board_color_2))
+            self.player_1_ai_type_var.set(self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none"))
+            self.player_2_ai_type_var.set(self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none"))
+
+            for key in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
+                self.entries[key].set(getattr(self.temp_settings, f"{key}_image"))
+
+            for key in ["player_1_image", "player_2_image", "al1_image", "al2_image"]:
+                self.entries[key].set(getattr(self.temp_settings, key))
+
+            ability_mapping = {1: "very_weak", 3: "weak", 5: "medium", 7: "strong", 9: "very_strong"}
+            p1_ability = self.temp_settings.ai_configs.get("player_1", {}).get("ability_level", 5)
+            self.player_1_ability_var.set(LANGUAGES[self.settings.language][ability_mapping.get(p1_ability, "medium")])
+            p2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
+            self.player_2_ability_var.set(LANGUAGES[self.settings.language][ability_mapping.get(p2_ability, "medium")])
+
+            self.update_piece_preview()
+            self.update_color_button(self.p1_color_button, self.player_1_color_var.get())
+            self.update_color_button(self.p2_color_button, self.player_2_color_var.get())
+            self.update_color_button(self.b1_color_button, self.board_color_1_var.get())
+            self.update_color_button(self.b2_color_button, self.board_color_2_var.get())
+            self.toggle_ai_vs_ai_options()
+            self.toggle_repeat_options()
+            self.toggle_timer()
+
+            messagebox.showinfo(
+                LANGUAGES[self.settings.language]["info"],
+                LANGUAGES[self.settings.language]["settings_reset"],
+                parent=self.window
+            )
+            _config_manager.log_to_json("Settings reset to defaults", level="INFO")
+        except Exception as e:
+            self.log_error(f"خطا در بازنشانی تنظیمات: {str(e)}")
+            _config_manager.log_to_json(f"Error resetting settings: {str(e)}", level="ERROR")
 
     def save(self):
         try:
@@ -967,18 +1043,18 @@ class SettingsWindow(BaseWindow):
                 "piece_style": self.piece_style_var.get(),
                 "sound_enabled": self.sound_var.get(),
                 "ai_pause_time": pause_time,
-                "player_1_name": self.player_1_name_var.get(),
-                "player_2_name": self.player_2_name_var.get(),
-                "al1_name": self.al1_name_var.get(),
-                "al2_name": self.al2_name_var.get(),
+                "player_1_name": self.validate_string_input(self.player_1_name_var.get()),
+                "player_2_name": self.validate_string_input(self.player_2_name_var.get()),
+                "al1_name": self.validate_string_input(self.al1_name_var.get()),
+                "al2_name": self.validate_string_input(self.al2_name_var.get()),
                 "player_1_color": self.player_1_color_var.get(),
                 "player_2_color": self.player_2_color_var.get(),
                 "board_color_1": self.board_color_1_var.get(),
                 "board_color_2": self.board_color_2_var.get(),
                 "player_1_image": self.entries.get("player_1_image",
-                                                   tk.StringVar(value=self.temp_settings.player_1_image)).get(),
+                                                  tk.StringVar(value=self.temp_settings.player_1_image)).get(),
                 "player_2_image": self.entries.get("player_2_image",
-                                                   tk.StringVar(value=self.temp_settings.player_2_image)).get(),
+                                                  tk.StringVar(value=self.temp_settings.player_2_image)).get(),
                 "al1_image": self.entries.get("al1_image", tk.StringVar(value=self.temp_settings.al1_image)).get(),
                 "al2_image": self.entries.get("al2_image", tk.StringVar(value=self.temp_settings.al2_image)).get(),
                 "player_1_piece_image": self.entries.get("player_1_piece", tk.StringVar(
@@ -1009,6 +1085,7 @@ class SettingsWindow(BaseWindow):
                     _config_manager.save_ai_specific_config(code, ai_specific_config)
 
             _config_manager.save_ai_config(ai_config)
+            _config_manager.log_to_json("Settings saved successfully", level="INFO", extra_data={"config": config})
 
             if config.get("language") != self.interface.settings.language:
                 messagebox.showinfo(
@@ -1036,114 +1113,7 @@ class SettingsWindow(BaseWindow):
 
         except Exception as e:
             self.log_error(f"خطا در ذخیره تنظیمات: {str(e)}")
-
-    def reset(self):
-        logger.info("Reset called")
-        if not messagebox.askyesno(
-                LANGUAGES[self.settings.language]["warning"],
-                LANGUAGES[self.settings.language]["confirm_reset_all"],
-                parent=self.window
-        ):
-            logger.info("Reset cancelled by user")
-            return
-
-        try:
-            ai_config = _config_manager.load_ai_config()
-            ai_types = list(ai_config["ai_types"].keys())
-            default_ai_type = ai_types[0] if ai_types else "none"
-            current_player_1_ai_type = self.temp_settings.player_1_ai_type if self.temp_settings.player_1_ai_type in ai_types else "none"
-            current_player_2_ai_type = self.temp_settings.player_2_ai_type if self.temp_settings.player_2_ai_type in ai_types else default_ai_type
-
-            self.temp_settings = type(self.temp_settings)()
-            self.temp_settings.language = "en"
-            self.temp_settings.game_mode = "human_vs_ai"
-            self.temp_settings.ai_vs_ai_mode = "only_once"
-            self.temp_settings.repeat_hands = 10
-            self.temp_settings.player_starts = True
-            self.temp_settings.use_timer = True
-            self.temp_settings.game_time = 5
-            self.temp_settings.piece_style = "circle"
-            self.temp_settings.sound_enabled = False
-            self.temp_settings.ai_pause_time = 20
-            self.temp_settings.player_1_name = "Player 1"
-            self.temp_settings.player_2_name = "AI Player"
-            self.temp_settings.al1_name = "AI 1"
-            self.temp_settings.al2_name = "AI 2"
-            self.temp_settings.player_1_color = (255, 0, 0)
-            self.temp_settings.player_2_color = (0, 0, 255)
-            self.temp_settings.board_color_1 = (255, 255, 255)
-            self.temp_settings.board_color_2 = (139, 69, 19)
-            self.temp_settings.player_1_ai_type = current_player_1_ai_type
-            self.temp_settings.player_2_ai_type = current_player_2_ai_type
-            self.temp_settings.player_1_image = ""
-            self.temp_settings.player_2_image = ""
-            self.temp_settings.al1_image = ""
-            self.temp_settings.al2_image = ""
-            self.temp_settings.player_1_piece_image = str(Path(self.config["assets_dir"]) / "pieces" / "red_piece.png")
-            self.temp_settings.player_1_king_image = str(Path(self.config["assets_dir"]) / "pieces" / "red_king.png")
-            self.temp_settings.player_2_piece_image = str(Path(self.config["assets_dir"]) / "pieces" / "blue_piece.png")
-            self.temp_settings.player_2_king_image = str(Path(self.config["assets_dir"]) / "pieces" / "blue_king.png")
-            self.temp_settings.ai_configs = {
-                "player_1": {
-                    "ai_type": current_player_1_ai_type,
-                    "ai_code": ai_config["ai_types"].get(current_player_1_ai_type, {}).get("code", None),
-                    "ability_level": 5,
-                    "params": DEFAULT_AI_PARAMS.copy() if current_player_1_ai_type != "none" else {}
-                },
-                "player_2": {
-                    "ai_type": current_player_2_ai_type,
-                    "ai_code": ai_config["ai_types"].get(current_player_2_ai_type, {}).get("code", None),
-                    "ability_level": 5,
-                    "params": DEFAULT_AI_PARAMS.copy() if current_player_2_ai_type != "none" else {}
-                }
-            }
-
-            ui_vars = {
-                "lang_var": self.temp_settings.language,
-                "play_with_var": self.temp_settings.game_mode,
-                "ai_vs_ai_var": self.temp_settings.ai_vs_ai_mode,
-                "hmh_var": self.temp_settings.repeat_hands,
-                "start_var": "player_1" if self.temp_settings.player_starts else "player_2",
-                "timer_var": "with_timer" if self.temp_settings.use_timer else "no_timer",
-                "timer_var_duration": self.temp_settings.game_time,
-                "piece_style_var": self.temp_settings.piece_style,
-                "sound_var": self.temp_settings.sound_enabled,
-                "ai_pause_var": self.temp_settings.ai_pause_time,
-                "player_1_name_var": self.temp_settings.player_1_name,
-                "player_2_name_var": self.temp_settings.player_2_name,
-                "al1_name_var": self.temp_settings.al1_name,
-                "al2_name_var": self.temp_settings.al2_name,
-                "player_1_color_var": rgb_to_hex(self.temp_settings.player_1_color),
-                "player_2_color_var": rgb_to_hex(self.temp_settings.player_2_color),
-                "board_color_1_var": rgb_to_hex(self.temp_settings.board_color_1),
-                "board_color_2_var": rgb_to_hex(self.temp_settings.board_color_2),
-                "player_1_ai_type_var": self.temp_settings.player_1_ai_type,
-                "player_2_ai_type_var": self.temp_settings.player_2_ai_type
-            }
-            for var_name, value in ui_vars.items():
-                if hasattr(self, var_name):
-                    getattr(self, var_name).set(value)
-                else:
-                    logger.warning(f"{var_name} not found in SettingsWindow")
-
-            for key in ["player_1_image", "player_2_image", "al1_image", "al2_image",
-                        "player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
-                if key in self.entries:
-                    self.entries[key].set(self.temp_settings.__dict__.get(key, ""))
-                else:
-                    logger.warning(f"Entry {key} not found in self.entries")
-
-            self.update_ui()
-            logger.debug("Temp settings after reset: %s", vars(self.temp_settings))
-            self.save()
-            logger.info("Reset completed, settings saved")
-            messagebox.showinfo(
-                LANGUAGES[self.settings.language]["info"],
-                LANGUAGES[self.settings.language]["settings_reset"]
-            )
-        except Exception as e:
-            logger.error(f"Error in reset: {str(e)}")
-            self.log_error(f"خطا در بازنشانی تنظیمات: {str(e)}")
+            _config_manager.log_to_json(f"Error saving settings: {str(e)}", level="ERROR")
 
     def update_ui(self):
         if not self.window or not self.is_open:
@@ -1317,7 +1287,6 @@ class AIProgressWindow(BaseWindow):
             logger.error(f"Failed to load progress file {progress_file_path}: {str(e)}")
             return {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
 
-
 class HelpWindow(BaseWindow):
     def create_widgets(self):
         self.create_window(
@@ -1355,7 +1324,6 @@ class AboutWindow(BaseWindow):
             command=self.close,
             style="Custom.TButton"
         ).pack(pady=10)
-
 
 class AdvancedConfigWindow(tk.Toplevel):
     def __init__(self, parent, settings, temp_settings, language):

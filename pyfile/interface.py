@@ -2,16 +2,16 @@
 import pygame
 import os
 import numpy as np
-
-from .checkers_core import log_to_json
-from .game import Game
-from .windows import SettingsWindow, AIProgressWindow, HelpWindow, AboutWindow
-from .config import load_config, save_stats
-from .constants import LANGUAGES
-from .utils import hex_to_rgb
 import tkinter as tk
 from tkinter import messagebox
 import sys
+
+from .game import Game
+from .windows import SettingsWindow, AIProgressWindow, HelpWindow, AboutWindow
+from .config import load_config, save_stats, log_to_json
+from .constants import LANGUAGES
+from .utils import hex_to_rgb
+
 
 
 class Button:

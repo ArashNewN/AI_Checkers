@@ -1,7 +1,7 @@
 from typing import Dict, Optional
-from .checkers_core import get_piece_moves, log_to_json, make_move
-from .config import load_config, load_ai_config, DEFAULT_AI_PARAMS
-from .utils import CheckersError
+from .checkers_core import get_piece_moves,  make_move
+from pyfile.config import load_config, load_ai_config, log_to_json, DEFAULT_AI_PARAMS
+from pyfile.utils import CheckersError
 
 class RewardCalculator:
     """Calculates rewards for the checkers game based on game state.

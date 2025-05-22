@@ -7,9 +7,10 @@ import logging
 import hashlib
 import json
 import gzip
+
 from contextlib import closing
 from time import time
-from .config import load_ai_config
+from pyfile.config import load_ai_config
 
 try:
     mp.set_start_method('spawn', force=True)

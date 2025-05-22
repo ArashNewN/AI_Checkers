@@ -1,5 +1,5 @@
 import pygame
-from .constants import LANGUAGES
+
 
 class TimerManager:
     def __init__(self, use_timer, game_time):

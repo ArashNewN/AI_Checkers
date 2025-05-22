@@ -1,6 +1,6 @@
 # train.py
 import torch
-from .checkers_game import CheckersGame
+from pyfile.checkers_game import CheckersGame
 
 game = CheckersGame()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'

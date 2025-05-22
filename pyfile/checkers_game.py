@@ -2,9 +2,9 @@ import logging
 import os
 import numpy as np
 from typing import Tuple
-from .board import Board
-from .checkers_core import get_piece_moves, make_move, log_to_json
-from .config import ConfigManager
+from modules.board import Board
+from modules.checkers_core import get_piece_moves, make_move
+from .config import ConfigManager, log_to_json
 from .settings import GameSettings
 from .utils import CheckersError
 

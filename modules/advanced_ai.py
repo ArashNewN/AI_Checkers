@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from .base_ai import BaseAI
-from .config import ConfigManager, DEFAULT_AI_PARAMS
+from pyfile.config import ConfigManager, DEFAULT_AI_PARAMS
 from .progress_tracker import ProgressTracker, logger
 from .rewards import RewardCalculator
 

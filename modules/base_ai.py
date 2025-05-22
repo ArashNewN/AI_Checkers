@@ -6,12 +6,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from collections import deque
-from pathlib import Path
 import logging
 from .rewards import RewardCalculator
-from .checkers_core import log_to_json
-from .config import ConfigManager, DEFAULT_AI_PARAMS
-from .utils import CheckersError
+from pyfile.config import ConfigManager, DEFAULT_AI_PARAMS, log_to_json
+from pyfile.utils import CheckersError
 
 # تنظیم لاگینگ
 logger = logging.getLogger(__name__)
@@ -26,6 +24,7 @@ AI_METADATA = {
 
 class BaseAI(ABC):
     def __init__(self, game, model_name: str, ai_id: str, settings: Optional[Dict] = None):
+        global config_data
         if not hasattr(game, 'copy') or not hasattr(game, 'get_legal_moves'):
             raise ValueError("Provided game object does not support required methods (copy, get_legal_moves)")
         self.game = game

@@ -1,12 +1,11 @@
 import numpy as np
 from collections import deque
-import torch
 from mcts import MCTS  # توجه به import نسبی
 import logging
 import json
 import time
 from pathlib import Path
-from config import load_config  # بارگذاری تنظیمات از config.py
+from pyfile.config import load_config  # بارگذاری تنظیمات از config.py
 
 # بارگذاری تنظیمات
 config = load_config()

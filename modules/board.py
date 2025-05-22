@@ -1,9 +1,9 @@
 import os
 import numpy as np
 import pygame
-from .utils import CheckersError
-from .config import ConfigManager
-from .constants import SQUARE_SIZE, BORDER_THICKNESS, MENU_HEIGHT
+from pyfile.utils import CheckersError
+from pyfile.config import ConfigManager, log_to_json
+from pyfile.constants import SQUARE_SIZE, BORDER_THICKNESS, MENU_HEIGHT
 
 # نمونه جهانی ConfigManager
 _config_manager = ConfigManager()
@@ -13,7 +13,6 @@ class Board:
         config = _config_manager.load_config()
         self.board_size = config.get("board_size", 8)  # مقدار پیش‌فرض 8
         if self.board_size % 2 != 0 or self.board_size < 4:
-            from .checkers_core import log_to_json
             log_to_json(
                 f"Invalid board_size: {self.board_size}. Must be even and >= 4.",
                 level="ERROR",
@@ -41,7 +40,7 @@ class Board:
 
     def load_piece_images(self):
         """Loads piece images from paths specified in settings."""
-        from .checkers_core import log_to_json
+
         config = _config_manager.load_config()
         assets_dir = config.get("assets_dir", "assets")
         project_root = _config_manager.get_project_root()
@@ -82,7 +81,6 @@ class Board:
             for col in range(self.board_size):
                 if (row + col) % 2 == 1:
                     self.board[row, col] = 1  # مهره‌های بازیکن 1
-        from .checkers_core import log_to_json
         log_to_json(
             f"Board created with size {self.board_size}x{self.board_size}",
             level="DEBUG",
@@ -91,7 +89,6 @@ class Board:
 
     def draw(self, screen, board_color_1, board_color_2):
         """Draws the board and pieces on the screen."""
-        from .checkers_core import log_to_json
         config = _config_manager.load_config()
         assets_dir = config.get("assets_dir", "assets")
         project_root = _config_manager.get_project_root()

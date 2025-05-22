@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .config import load_config
+from pyfile.config import load_config
 
 class ResidualBlock(nn.Module):
     def __init__(self, num_filters):

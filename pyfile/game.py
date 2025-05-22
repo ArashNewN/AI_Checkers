@@ -5,14 +5,14 @@ import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
-from .base_ai import BaseAI
-from .checkers_core import get_piece_moves, make_move, log_to_json
-from .board import Board
+from modules.base_ai import BaseAI
+from modules.checkers_core import get_piece_moves, make_move
+from modules.board import Board
 from .checkers_game import CheckersGame
 from .settings import GameSettings
 from .timer import TimerManager
-from .rewards import RewardCalculator
-from .config import load_stats, save_stats, load_ai_config, load_config, _config_manager
+from modules.rewards import RewardCalculator
+from .config import load_stats, save_stats, load_ai_config, load_config, _config_manager, log_to_json
 from .utils import CheckersError
 
 

@@ -1,52 +1,13 @@
 # checkers_core.py
-import numpy as np
 from typing import Dict, List, Optional, Tuple
-import json
-import logging
-from pathlib import Path
+
 from .board import Board
-from .config import ConfigManager
+from pyfile.config import ConfigManager
 
 # نمونه ConfigManager برای دسترسی به تنظیمات لاگینگ
 _config_manager = ConfigManager()
 
-# تنظیم لاگینگ با استفاده از سطح لاگینگ از ConfigManager
-logging.basicConfig(
-    level=getattr(logging, _config_manager.load_config().get("logging_level", "DEBUG")),
-    format='[%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler('checkers_core.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
-def log_to_json(message, level="INFO", extra_data=None):
-    import json
-    import logging
-    from datetime import datetime
-    import numpy as np
-
-    def convert_to_serializable(data):
-        if isinstance(data, dict):
-            return {str(k) if isinstance(k, (tuple, list)) else k: convert_to_serializable(v) for k, v in data.items()}
-        elif isinstance(data, (np.integer, np.floating)):
-            return data.item()
-        elif isinstance(data, (list, tuple)):
-            return [convert_to_serializable(item) for item in data]
-        return data
-
-    try:
-        extra_data = convert_to_serializable(extra_data) if extra_data else {}
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "level": level,
-            "message": message,
-            **extra_data
-        }
-        logging.getLogger().log(getattr(logging, level), json.dumps(log_entry, ensure_ascii=False))
-    except Exception as e:
-        logging.getLogger().error(f"Error logging to JSON: {e}")
 
 def get_piece_moves(board: Board, row: int, col: int, player: int) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
     """

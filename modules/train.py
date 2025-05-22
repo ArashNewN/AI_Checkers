@@ -1,16 +1,18 @@
 import os
 import torch
 import torch.optim as optim
-from alphazero_net import AlphaZeroNet
-from self_play import self_play
-from progress_tracker import ProgressTracker
-from checkers_game import CheckersGame
-from config import load_config  # بارگذاری تنظیمات از فایل config.json
 import logging
 import numpy as np
 import pickle
 from collections import deque
 from pathlib import Path
+
+from .alphazero_net import AlphaZeroNet
+from .self_play import self_play
+from .progress_tracker import ProgressTracker
+from pyfile.checkers_game import CheckersGame
+from pyfile.config import load_config  # بارگذاری تنظیمات از فایل config.json
+
 
 # بارگذاری تنظیمات
 config = load_config()

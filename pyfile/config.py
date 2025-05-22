@@ -1,10 +1,17 @@
 import json
-import sys
+import os
 from pathlib import Path
-import importlib
 import logging
+from datetime import datetime
+import numpy as np
+import importlib
 from typing import Dict, Optional
-from .constants import LANGUAGES
+
+try:
+    from .constants import LANGUAGES
+except ImportError as e:
+    logging.error(f"Failed to import LANGUAGES from constants: {e}")
+    LANGUAGES = {"en": {}, "fa": {}}  # فال‌بک پیش‌فرض
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +25,62 @@ DEFAULT_ABILITY_LEVELS: Dict[str, str] = {
 }
 
 # Default AI parameters
-DEFAULT_AI_PARAMS: Dict[str, Dict] = {
-    "general": {
-        "max_depth": 3,
-        "time_limit": 5.0,
-        "use_heuristic": True
+DEFAULT_AI_PARAMS = {
+    "training_params": {
+        "memory_size": 10000,
+        "batch_size": 128,
+        "learning_rate": 0.001,
+        "gamma": 0.99,
+        "epsilon_start": 1.0,
+        "epsilon_end": 0.01,
+        "epsilon_decay": 0.999,
+        "update_target_every": 100,
+        "reward_threshold": 0.5
     },
-    "evaluation": {
-        "piece_value": 1.0,
-        "king_value": 3.0,
-        "mobility_weight": 0.1
+    "reward_weights": {
+        "piece_difference": 1.0,
+        "king_bonus": 2.0,
+        "position_bonus": 0.1,
+        "capture_bonus": 1.0,
+        "multi_jump_bonus": 2.0,
+        "king_capture_bonus": 3.0,
+        "mobility_bonus": 0.1,
+        "safety_penalty": -0.5
+    },
+    "mcts_params": {
+        "c_puct": 1.0,
+        "num_simulations": 200,
+        "max_cache_size": 10000,
+        "num_processes": 4,
+        "cache_file": "state_cache.json.gz",
+        "cache_save_interval": 100
+    },
+    "network_params": {
+        "input_channels": 4,
+        "num_filters": 64,
+        "num_blocks": 8,
+        "board_size": 8,
+        "num_actions": 1024,
+        "dropout_rate": 0.3
+    },
+    "advanced_nn_params": {
+        "input_channels": 3,
+        "conv1_filters": 64,
+        "conv1_kernel_size": 3,
+        "conv1_padding": 1,
+        "residual_block1_filters": 64,
+        "residual_block2_filters": 128,
+        "conv2_filters": 128,
+        "attention_embed_dim": 128,
+        "attention_num_heads": 4,
+        "fc_layer_sizes": [512, 256],
+        "dropout_rate": 0.3
+    },
+    "end_game_rewards": {
+        "win_no_timeout": 100,
+        "win_timeout": 0,
+        "draw": -50,
+        "loss": -100
     }
 }
 
@@ -63,52 +116,108 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, '_initialized'):  # Prevent re-initialization
+        if hasattr(self, '_initialized'):
             return
-        self._config_cache: Optional[Dict] = None
-        self._ai_config_cache: Optional[Dict] = None
-        self._ai_specific_config_cache: Dict[str, Dict] = {}
-        self._ai_module_cache: Dict[str, LazyLoader] = {}
-        self.project_root: Optional[Path] = None
+        self._config_cache = None
+        self._ai_config_cache = None
+        self._ai_specific_config_cache = {}
+        self._ai_module_cache = {}
+        self.project_root = None
         self._initialized = True
+
+        # مسیرهای پویا برای پوشه‌ها
+        self.config_dir = self.get_project_root() / "configs"
+        self.log_dir = self.get_project_root() / "logs"
+        self.pth_dir = self.get_project_root() / "pth"
+        self.assets_dir = self.get_project_root() / "assets"
+
+        # ایجاد پوشه‌ها در صورت عدم وجود
+        for directory in [self.config_dir, self.log_dir, self.pth_dir, self.assets_dir, self.config_dir / "ai"]:
+            directory.mkdir(parents=True, exist_ok=True)
+
+        # تنظیم لاگ‌گیری
+        logging.basicConfig(
+            level=logging.DEBUG,
+            filename=self.log_dir / "app.log",
+            encoding="utf-8",
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
 
     def get_project_root(self) -> Path:
         if self.project_root is None:
+            # بررسی متغیر محیطی PROJECT_ROOT
+            env_project_root = os.getenv("PROJECT_ROOT")
+            if env_project_root and Path(env_project_root).exists():
+                self.project_root = Path(env_project_root).resolve()
+                logger.debug(f"Project root set from PROJECT_ROOT env: {self.project_root}")
+                return self.project_root
+
+            # شروع از مسیر فایل فعلی
             current_path = Path(__file__).resolve().parent
-            max_depth = 10
+            max_depth = 15
             depth = 0
             while depth < max_depth:
                 configs_dir = current_path / "configs"
-                a_dir = current_path / "a"
-                configs_dir.mkdir(parents=True, exist_ok=True)
-                if configs_dir.exists() and a_dir.exists():
+                modules_dir = current_path / "modules"
+                logs_dir = current_path / "logs"
+                if any([configs_dir.exists(), modules_dir.exists(), logs_dir.exists()]):
                     logger.debug(f"Project root found at: {current_path}")
                     self.project_root = current_path
+                    for directory in [configs_dir, modules_dir, logs_dir]:
+                        directory.mkdir(parents=True, exist_ok=True)
                     return self.project_root
                 current_path = current_path.parent
                 depth += 1
-            logger.error("Could not find project root with config and a directories")
-            raise FileNotFoundError("Failed to locate project root directory")
+
+            logger.warning("Could not find project root, using default path")
+            self.project_root = Path(__file__).resolve().parent.parent
+            for directory in [self.project_root / "configs", self.project_root / "modules", self.project_root / "logs"]:
+                directory.mkdir(parents=True, exist_ok=True)
         return self.project_root
 
+    @staticmethod
+    def log_to_json(message: str, level: str = "DEBUG", extra_data: Optional[Dict] = None):
+        def convert_to_serializable(data):
+            if isinstance(data, dict):
+                return {str(k) if isinstance(k, (tuple, list)) else k: ConfigManager.convert_to_serializable(v) for k, v in data.items()}
+            elif isinstance(data, (np.integer, np.floating)):
+                return data.item()
+            elif isinstance(data, (list, tuple)):
+                return [ConfigManager.convert_to_serializable(item) for item in data]
+            elif isinstance(data, Path):
+                return str(data)
+            return data
+
+        try:
+            extra_data = ConfigManager.convert_to_serializable(extra_data) if extra_data else {}
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "message": message,
+                "extra_data": extra_data
+            }
+            log_path = ConfigManager().log_dir / "json_logs.json"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                json.dump(log_entry, f, ensure_ascii=False)
+                f.write("\n")
+            logger.log(getattr(logging, level), f"{message} | Extra: {extra_data}")
+        except Exception as e:
+            logger.error(f"Error logging to JSON: {e}")
+
     def get_stats_path(self) -> Path:
-        """Returns the path to stats.json."""
-        return self.get_project_root() / "configs" / "stats.json"
+        return self.config_dir / "stats.json"
 
     def get_config_path(self) -> Path:
-        """Returns the path to config.json."""
-        return self.get_project_root() / "configs" / "config.json"
+        return self.config_dir / "config.json"
 
     def get_ai_config_path(self) -> Path:
-        """Returns the path to ai_config.json."""
-        return self.get_project_root() / "configs" / "ai_config.json"
+        return self.config_dir / "ai_config.json"
 
     def get_ai_specific_config_path(self, ai_code: str) -> Path:
-        """Returns the path to AI-specific config (e.g., al_config.json)."""
-        return self.get_project_root() / "configs" / "ai" / f"{ai_code}_config.json"
+        return self.config_dir / "ai" / f"{ai_code}_config.json"
 
     def load_config(self) -> Dict:
-        """Loads non-AI settings from config.json or creates it with defaults."""
         if self._config_cache is not None:
             logger.debug("Returning cached config")
             return self._config_cache
@@ -177,10 +286,10 @@ class ConfigManager:
             "player_2_image": "",
             "al1_image": "",
             "al2_image": "",
-            "player_1_piece_image": "",
-            "player_1_king_image": "",
-            "player_2_piece_image": "",
-            "player_2_king_image": "",
+            "player_1_piece_image": str(self.assets_dir / "pieces" / "red_piece.png"),
+            "player_1_king_image": str(self.assets_dir / "pieces" / "red_king.png"),
+            "player_2_piece_image": str(self.assets_dir / "pieces" / "blue_piece.png"),
+            "player_2_king_image": str(self.assets_dir / "pieces" / "blue_king.png"),
             "pause_between_hands": 1000,
             "player_1_ai_type": "none",
             "player_2_ai_type": "none",
@@ -191,11 +300,11 @@ class ConfigManager:
             "player_2_color": "#0000ff",
             "board_color_1": "#ffffff",
             "board_color_2": "#8b4513",
-            "assets_dir": str(self.get_project_root() / "assets"),
+            "assets_dir": str(self.assets_dir),
             "max_no_capture_moves": 40,
             "max_uniform_moves": 5,
             "max_total_moves": 40,
-            "logging_level": "ERROR"
+            "logging_level": "DEBUG"
         }
         config_path = self.get_config_path()
         try:
@@ -225,7 +334,6 @@ class ConfigManager:
         return self._config_cache
 
     def save_config(self, config: Dict):
-        """Saves non-AI settings to config.json."""
         config_path = self.get_config_path()
         try:
             config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -237,7 +345,6 @@ class ConfigManager:
             logger.error(f"Error saving config to {config_path}: {e}")
 
     def load_ai_config(self) -> Dict:
-        """Loads AI settings from ai_config.json and separate config files."""
         if self._ai_config_cache is not None:
             logger.debug("Returning cached AI config")
             return self._ai_config_cache
@@ -290,13 +397,6 @@ class ConfigManager:
             ai_config = default_ai_config
             config_changed = True
 
-        # Ensure ai_types is a dictionary
-        if not isinstance(ai_config.get("ai_types", {}), dict):
-            logger.error(f"AI types is not a dictionary, resetting to empty dict")
-            ai_config["ai_types"] = {}
-            config_changed = True
-
-        # Validate AI types
         used_codes = set()
         valid_ai_types = {}
         for ai_type, ai_info in ai_config["ai_types"].items():
@@ -318,27 +418,18 @@ class ConfigManager:
             ai_config["ai_types"] = valid_ai_types
             config_changed = True
 
-        # Validate and cache AI modules
-        project_dir = self.get_project_root()
-        root_dir = project_dir
-        if str(root_dir) not in sys.path:
-            sys.path.append(str(root_dir))
-
         valid_ai_types = {}
         for ai_type, ai_info in ai_config["ai_types"].items():
-            full_module_name = ai_info.get("module", "")
-            if not full_module_name.startswith("a."):
-                logger.warning(f"AI type {ai_type} ignored: invalid module name {full_module_name}")
-                continue
-            module_name = full_module_name.replace("a.", "")
-            module_path = project_dir / f"{module_name}.py"
+            module_name = ai_info.get("module", "")
             class_name = ai_info.get("class", "")
+            module_path = self.get_project_root() / "modules" / f"{module_name}.py"
 
             logger.debug(f"Checking module: {module_path} for AI type {ai_type}")
             if module_path.exists():
-                self._ai_module_cache[ai_type] = LazyLoader(full_module_name, class_name)
+                module_import_name = f"modules.{module_name}"
+                self._ai_module_cache[ai_type] = LazyLoader(module_import_name, class_name)
                 valid_ai_types[ai_type] = ai_info
-                logger.debug(f"AI type {ai_type} prepared for lazy loading: module {full_module_name}, class {class_name}")
+                logger.debug(f"AI type {ai_type} prepared for lazy loading: module {module_import_name}, class {class_name}")
                 ai_code = ai_info.get("code", "")
                 if ai_code:
                     ai_specific_config_path = self.get_ai_specific_config_path(ai_code)
@@ -355,7 +446,6 @@ class ConfigManager:
             ai_config["ai_types"] = valid_ai_types
             config_changed = True
 
-        # Load AI-specific settings
         for player in ["player_1", "player_2"]:
             player_config = ai_config["ai_configs"].get(player, {})
             if not isinstance(player_config, dict):
@@ -397,10 +487,8 @@ class ConfigManager:
         return self._ai_config_cache
 
     def save_ai_config(self, ai_config: Dict):
-        """Saves AI settings to ai_config.json."""
         ai_config_path = self.get_ai_config_path()
         try:
-            # Ensure all values are JSON-serializable
             def make_serializable(obj):
                 if isinstance(obj, Path):
                     return str(obj)
@@ -420,7 +508,6 @@ class ConfigManager:
             logger.error(f"Error saving AI config to {ai_config_path}: {e}")
 
     def load_ai_specific_config(self, ai_code: str) -> Dict:
-        """Loads AI-specific config from its config file (e.g., al_config.json)."""
         if ai_code in self._ai_specific_config_cache:
             logger.debug(f"Returning cached AI specific config for {ai_code}")
             return self._ai_specific_config_cache[ai_code]
@@ -464,7 +551,6 @@ class ConfigManager:
         return self._ai_specific_config_cache[ai_code]
 
     def save_ai_specific_config(self, ai_code: str, config: Dict):
-        """Saves AI-specific settings to its config file (e.g., al_config.json)."""
         ai_specific_config_path = self.get_ai_specific_config_path(ai_code)
         try:
             ai_specific_config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -476,13 +562,11 @@ class ConfigManager:
             logger.error(f"Error saving AI specific config to {ai_specific_config_path}: {e}")
 
     def get_ai_module(self, ai_type: str):
-        """Returns the lazily loaded AI module class."""
         if ai_type in self._ai_module_cache:
             return self._ai_module_cache[ai_type].load()
         raise ValueError(f"AI type {ai_type} not found in module cache")
 
     def load_stats(self) -> Dict:
-        """Loads game statistics."""
         stats_path = self.get_stats_path()
         default_stats = {
             "player_1_wins": 0,
@@ -505,7 +589,6 @@ class ConfigManager:
         return default_stats
 
     def save_stats(self, stats: Dict):
-        """Saves game statistics."""
         stats_path = self.get_stats_path()
         try:
             stats_path.parent.mkdir(parents=True, exist_ok=True)
@@ -516,7 +599,6 @@ class ConfigManager:
             logger.error(f"Error saving stats to {stats_path}: {e}")
 
     def update_ability_level(self, player: str, selected_level: str, language: str):
-        """Updates the ability level for the specified player based on the selected level label."""
         try:
             ai_config = self.load_ai_config()
             ability_levels = self.get_ability_levels_reverse(language)
@@ -528,7 +610,6 @@ class ConfigManager:
             logger.error(f"Error updating ability level for {player}: {e}")
 
     def get_ability_level_label(self, player: str, language: str) -> str:
-        """Returns the ability level label for the specified player in the given language."""
         try:
             ai_config = self.load_ai_config()
             ability_level = ai_config["ai_configs"].get(player, {}).get("ability_level", 5)
@@ -539,7 +620,6 @@ class ConfigManager:
             return LANGUAGES[language].get("medium", "Medium")
 
     def get_ability_levels_reverse(self, language: str) -> Dict[str, str]:
-        """Returns a reverse mapping of ability level labels to their numeric values for the given language."""
         try:
             ai_config = self.load_ai_config()
             return {
@@ -592,3 +672,6 @@ def load_stats() -> Dict:
 
 def save_stats(stats: Dict):
     _config_manager.save_stats(stats)
+
+def log_to_json(message: str, level: str = "DEBUG", extra_data: Optional[Dict] = None):
+    ConfigManager.log_to_json(message, level, extra_data)
