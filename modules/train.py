@@ -19,7 +19,7 @@ config = load_config()
 
 # تنظیم لاگ‌گیری
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(), logging.FileHandler('train.log')]
 )

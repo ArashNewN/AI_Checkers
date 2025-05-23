@@ -18,7 +18,7 @@ log_file = project_root / "logs" / "interface.log"
 log_file.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level", "DEBUG")),
+    level=getattr(logging, config.get("logging_level", "ERROR")),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),  # نمایش در ترمینال
@@ -555,11 +555,11 @@ class GameInterface:
             ]:
                 text_surface = self.small_font.render(LANGUAGES[self.settings.language][text_key], True, self.BLACK)
                 self.screen.blit(text_surface, (x, 5))
-                log_to_json(
-                    f"Drew menu text: {text_key}",
-                    level="DEBUG",
-                    extra_data={"text": text_key, "position": [x, 5]}
-                )
+                #log_to_json(
+                    #f"Drew menu text: {text_key}",
+                    #level="DEBUG",
+                    #extra_data={"text": text_key, "position": [x, 5]}
+                #)
 
             pygame.draw.rect(self.screen, self.BLUE,
                              (0, self.MENU_HEIGHT, self.BOARD_WIDTH + self.BORDER_THICKNESS * 2,

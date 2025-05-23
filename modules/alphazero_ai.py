@@ -7,9 +7,9 @@ import torch.optim as optim
 from pathlib import Path
 
 from .base_ai import BaseAI
-from pyfile.config import load_ai_config
 from .rewards import RewardCalculator
 from .progress_tracker import ProgressTracker
+from pyfile.config import load_ai_config
 from pyfile.checkers_game import CheckersGame
 
 AI_METADATA = {
@@ -29,7 +29,7 @@ if str(parent_dir) not in sys.path:
 log_dir = os.path.dirname(os.path.dirname(__file__))
 log_file = os.path.join(log_dir, 'alphazero_ai.log')
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format=' %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),

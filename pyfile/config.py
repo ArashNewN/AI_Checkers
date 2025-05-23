@@ -1,17 +1,12 @@
-import json
 import os
+import json
 from pathlib import Path
 import logging
-from datetime import datetime
 import numpy as np
 import importlib
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, TypedDict
 
-try:
-    from .constants import LANGUAGES
-except ImportError as e:
-    logging.error(f"Failed to import LANGUAGES from constants: {e}")
-    LANGUAGES = {"en": {}, "fa": {}}  # فال‌بک پیش‌فرض
+from .constants import LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +96,21 @@ class LazyLoader:
                 self._class = getattr(self._module, self.class_name)
                 logger.debug(f"Lazy-loaded module {self.module_name}, class {self.class_name}")
             except Exception as load_error:
-                logger.error(f"Error lazy-loading module {self.module_name}: {load_error}")
+                logger.error(f"Error lazy-loading module {self.module_name}: {str(load_error)}")
                 raise
         return self._class
+
+# TypedDict definitions for better type checking
+class PlayerConfig(TypedDict):
+    ai_type: str
+    ai_code: Optional[str]
+    ability_level: int
+    params: Dict[str, Union[int, float, dict]]
+
+class AIConfig(TypedDict):
+    ai_types: Dict[str, Dict[str, str]]
+    ability_levels: Dict[str, str]
+    ai_configs: Dict[str, PlayerConfig]
 
 # ConfigManager class for centralized configuration management
 class ConfigManager:
@@ -125,19 +132,19 @@ class ConfigManager:
         self.project_root = None
         self._initialized = True
 
-        # مسیرهای پویا برای پوشه‌ها
+        # Dynamic paths for folders
         self.config_dir = self.get_project_root() / "configs"
         self.log_dir = self.get_project_root() / "logs"
         self.pth_dir = self.get_project_root() / "pth"
         self.assets_dir = self.get_project_root() / "assets"
 
-        # ایجاد پوشه‌ها در صورت عدم وجود
+        # Create directories if they don't exist
         for directory in [self.config_dir, self.log_dir, self.pth_dir, self.assets_dir, self.config_dir / "ai"]:
             directory.mkdir(parents=True, exist_ok=True)
 
-        # تنظیم لاگ‌گیری
+        # Setup logging
         logging.basicConfig(
-            level=logging.DEBUG,
+            level=logging.ERROR,
             filename=self.log_dir / "app.log",
             encoding="utf-8",
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -145,14 +152,14 @@ class ConfigManager:
 
     def get_project_root(self) -> Path:
         if self.project_root is None:
-            # بررسی متغیر محیطی PROJECT_ROOT
+            # Check environment variable PROJECT_ROOT
             env_project_root = os.getenv("PROJECT_ROOT")
             if env_project_root and Path(env_project_root).exists():
                 self.project_root = Path(env_project_root).resolve()
                 logger.debug(f"Project root set from PROJECT_ROOT env: {self.project_root}")
                 return self.project_root
 
-            # شروع از مسیر فایل فعلی
+            # Start from current file path
             current_path = Path(__file__).resolve().parent
             max_depth = 15
             depth = 0
@@ -176,7 +183,7 @@ class ConfigManager:
         return self.project_root
 
     @staticmethod
-    def log_to_json(message: str, level: str = "DEBUG", extra_data: Optional[Dict] = None):
+    def log_to_json(message: str, level: str = "ERROR", extra_data: Optional[Dict] = None):
         def convert_to_serializable(data):
             if isinstance(data, dict):
                 return {str(k) if isinstance(k, (tuple, list)) else k: convert_to_serializable(v) for k, v in data.items()}
@@ -186,24 +193,31 @@ class ConfigManager:
                 return [convert_to_serializable(item) for item in data]
             elif isinstance(data, Path):
                 return str(data)
+            elif isinstance(data, bool):
+                return data
             return data
 
         try:
             extra_data = convert_to_serializable(extra_data) if extra_data else {}
             log_entry = {
-                "timestamp": datetime.now().isoformat(),
                 "level": level,
                 "message": message,
                 "extra_data": extra_data
             }
-            log_path = ConfigManager().log_dir / "json_logs.json"
+
+            formatted_output = f'[{level}] : "{message}", "extra_data": {json.dumps(extra_data, ensure_ascii=False)}'
+            print(formatted_output)  # Display output in console
+
+            log_path = Path("json_logs.json")
             log_path.parent.mkdir(parents=True, exist_ok=True)
+
             with open(log_path, "a", encoding="utf-8") as f:
                 json.dump(log_entry, f, ensure_ascii=False)
                 f.write("\n")
-            logger.log(getattr(logging, level), f"{message} | Extra: {extra_data}")
+
+            logger.log(getattr(logging, level), formatted_output)
         except Exception as log_error:
-            logger.error(f"Error logging to JSON: {log_error}")
+            logger.error(f"Error logging to JSON: {str(log_error)}")
 
     def get_stats_path(self) -> Path:
         return self.config_dir / "stats.json"
@@ -327,7 +341,7 @@ class ConfigManager:
             self._config_cache = config
             logger.debug("Config cached successfully")
         except (json.JSONDecodeError, ValueError, Exception) as config_error:
-            logger.error(f"Error loading config from {config_path}: {config_error}, using default config")
+            logger.error(f"Error loading config from {config_path}: {str(config_error)}")
             config = default_config
             self._config_cache = config
             self.save_config(config)
@@ -342,14 +356,14 @@ class ConfigManager:
             logger.debug(f"Config saved to {config_path}")
             self._config_cache = config
         except Exception as save_config_error:
-            logger.error(f"Error saving config to {config_path}: {save_config_error}")
+            logger.error(f"Error saving config to {config_path}: {str(save_config_error)}")
 
-    def load_ai_config(self) -> Dict[str, Union[Dict, Dict[str, str], Dict[str, Dict]]]:
+    def load_ai_config(self) -> AIConfig:
         if self._ai_config_cache is not None:
             logger.debug("Returning cached AI config")
             return self._ai_config_cache
 
-        default_ai_config = {
+        default_ai_config: AIConfig = {
             "ai_types": {},
             "ability_levels": DEFAULT_ABILITY_LEVELS,
             "ai_configs": {
@@ -393,7 +407,7 @@ class ConfigManager:
                 logger.debug(f"AI config file not found at {ai_config_path}, creating with default config")
                 config_changed = True
         except (json.JSONDecodeError, ValueError, Exception) as ai_config_error:
-            logger.error(f"Error loading AI config from {ai_config_path}: {ai_config_error}, using default AI config")
+            logger.error(f"Error loading AI config from {ai_config_path}: {str(ai_config_error)}")
             ai_config = default_ai_config
             config_changed = True
 
@@ -449,7 +463,7 @@ class ConfigManager:
             config_changed = True
 
         for player in ["player_1", "player_2"]:
-            player_config: Dict[str, Union[str, None, int, Dict]] = ai_config["ai_configs"].get(player, {})
+            player_config: PlayerConfig = ai_config["ai_configs"].get(player, {})
             if not isinstance(player_config, dict):
                 player_config = {
                     "ai_type": "none",
@@ -488,7 +502,7 @@ class ConfigManager:
         logger.debug("AI config cached successfully")
         return self._ai_config_cache
 
-    def save_ai_config(self, ai_config: Dict):
+    def save_ai_config(self, ai_config: AIConfig):
         ai_config_path = self.get_ai_config_path()
         try:
             def make_serializable(obj):
@@ -507,7 +521,7 @@ class ConfigManager:
             logger.debug(f"AI config saved to {ai_config_path}")
             self._ai_config_cache = ai_config
         except Exception as save_ai_config_error:
-            logger.error(f"Error saving AI config to {ai_config_path}: {save_ai_config_error}")
+            logger.error(f"Error saving AI config to {ai_config_path}: {str(save_ai_config_error)}")
 
     def load_ai_specific_config(self, ai_code: str) -> Dict:
         if ai_code in self._ai_specific_config_cache:
@@ -543,7 +557,7 @@ class ConfigManager:
             self._ai_specific_config_cache[ai_code] = config
             logger.debug(f"AI specific config cached for {ai_code}")
         except (json.JSONDecodeError, ValueError, Exception) as ai_specific_error:
-            logger.error(f"Error loading AI specific config from {ai_specific_config_path}: {ai_specific_error}, using default config")
+            logger.error(f"Error loading AI specific config from {ai_specific_config_path}: {str(ai_specific_error)}")
             config = {
                 "player_1": DEFAULT_AI_PARAMS.copy(),
                 "player_2": DEFAULT_AI_PARAMS.copy()
@@ -561,7 +575,7 @@ class ConfigManager:
             logger.debug(f"AI specific config saved to {ai_specific_config_path}")
             self._ai_specific_config_cache[ai_code] = config
         except Exception as save_ai_specific_error:
-            logger.error(f"Error saving AI specific config to {ai_specific_config_path}: {save_ai_specific_error}")
+            logger.error(f"Error saving AI specific config to {ai_specific_config_path}: {str(save_ai_specific_error)}")
 
     def get_ai_module(self, ai_type: str):
         if ai_type in self._ai_module_cache:
@@ -586,7 +600,7 @@ class ConfigManager:
                 logger.debug(f"Stats file not found at {stats_path}, creating with default stats")
                 self.save_stats(default_stats)
         except (json.JSONDecodeError, ValueError, Exception) as stats_error:
-            logger.error(f"Error loading stats from {stats_path}: {stats_error}, using default stats")
+            logger.error(f"Error loading stats from {stats_path}: {str(stats_error)}")
             self.save_stats(default_stats)
         return default_stats
 
@@ -598,37 +612,44 @@ class ConfigManager:
                 json.dump(stats, f, ensure_ascii=False, indent=4)
             logger.debug(f"Stats saved to {stats_path}")
         except Exception as save_stats_error:
-            logger.error(f"Error saving stats to {stats_path}: {save_stats_error}")
+            logger.error(f"Error saving stats to {stats_path}: {str(save_stats_error)}")
 
     def update_ability_level(self, player: str, selected_level: str, language: str):
         try:
-            ai_config = self.load_ai_config()
+            ai_config: AIConfig = self.load_ai_config()
             ability_levels = self.get_ability_levels_reverse(language)
             level_value = int(ability_levels.get(selected_level, "5"))
+            if player not in ai_config["ai_configs"]:
+                ai_config["ai_configs"][player] = {
+                    "ai_type": "none",
+                    "ai_code": None,
+                    "ability_level": 5,
+                    "params": DEFAULT_AI_PARAMS.copy()
+                }
             ai_config["ai_configs"][player]["ability_level"] = level_value
             self.save_ai_config(ai_config)
             logger.debug(f"Updated ability level for {player} to {level_value} ({selected_level})")
         except Exception as ability_error:
-            logger.error(f"Error updating ability level for {player}: {ability_error}")
+            logger.error(f"Error updating ability level for {player}: {str(ability_error)}")
 
     def get_ability_level_label(self, player: str, language: str) -> str:
         try:
-            ai_config = self.load_ai_config()
+            ai_config: AIConfig = self.load_ai_config()
             ability_level = ai_config["ai_configs"].get(player, {}).get("ability_level", 5)
             ability_key = ai_config["ability_levels"].get(str(ability_level), "medium")
             return LANGUAGES[language].get(ability_key, "Medium")
         except Exception as label_error:
-            logger.error(f"Error getting ability level label for {player}: {label_error}")
+            logger.error(f"Error getting ability level label for {player}: {str(label_error)}")
             return LANGUAGES[language].get("medium", "Medium")
 
     def get_ability_levels_reverse(self, language: str) -> Dict[str, str]:
         try:
-            ai_config = self.load_ai_config()
+            ai_config: AIConfig = self.load_ai_config()
             return {
                 LANGUAGES[language][key]: str(value) for value, key in ai_config["ability_levels"].items()
             }
         except Exception as reverse_error:
-            logger.error(f"Error getting reverse ability levels for language {language}: {reverse_error}")
+            logger.error(f"Error getting reverse ability levels for language {language}: {str(reverse_error)}")
             return {
                 LANGUAGES[language][key]: str(value) for value, key in DEFAULT_ABILITY_LEVELS.items()
             }
@@ -657,10 +678,10 @@ def load_config() -> Dict:
 def save_config(config: Dict):
     _config_manager.save_config(config)
 
-def load_ai_config() -> Dict:
+def load_ai_config() -> AIConfig:
     return _config_manager.load_ai_config()
 
-def save_ai_config(ai_config: Dict):
+def save_ai_config(ai_config: AIConfig):
     _config_manager.save_ai_config(ai_config)
 
 def load_ai_specific_config(ai_code: str) -> Dict:
@@ -677,5 +698,3 @@ def save_stats(stats: Dict):
 
 def log_to_json(message: str, level: str = "DEBUG", extra_data: Optional[Dict] = None):
     ConfigManager.log_to_json(message, level, extra_data)
-
-

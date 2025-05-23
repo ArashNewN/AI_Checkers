@@ -30,7 +30,7 @@ log_dir.mkdir(parents=True, exist_ok=True)
 
 # تنظیم لاگ‌گیری
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     filename=log_dir / "app.log",
     encoding="utf-8",
     format="%(levelname)s - %(message)s"
@@ -203,7 +203,7 @@ class SettingsWindow(BaseWindow):
                 module_dir.mkdir(parents=True, exist_ok=True)
                 for py_file in module_dir.glob("*.py"):
                     module_name = py_file.stem
-                    if module_name in ["__init__", "windows", "base_ai"]:
+                    if module_name in ["__init__", "windows", "base_ai", "self_play", "train", "train_advanced"]:
                         logger.debug(f"Skipping file: {module_name}")
                         continue
                     try:
@@ -894,7 +894,8 @@ class SettingsWindow(BaseWindow):
             self.log_error(f"خطا در انتخاب رنگ: {str(e)}")
             _config_manager.log_to_json(f"Error choosing color for {button_key}: {str(e)}", level="ERROR")
 
-    def update_color_button(self, button: ttk.Button, color: str):
+    @staticmethod
+    def update_color_button(button: ttk.Button, color: str):
         try:
             button.configure(style="Custom.TButton")
             button.configure(text=f"{color}")
@@ -946,7 +947,8 @@ class SettingsWindow(BaseWindow):
             logger.error(f"Error updating piece preview: {e}")
             _config_manager.log_to_json(f"Error updating piece preview: {str(e)}", level="ERROR")
 
-    def validate_string_input(self, input_str: str) -> str:
+    @staticmethod
+    def validate_string_input(input_str: str) -> str:
         try:
             return input_str.encode("utf-8").decode("utf-8")
         except UnicodeEncodeError:

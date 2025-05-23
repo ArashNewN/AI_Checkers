@@ -4,29 +4,38 @@ import os
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
+import importlib
 
-from modules.base_ai import BaseAI
-from modules.checkers_core import get_piece_moves, make_move
-from modules.board import Board
+from .checkers_core import get_piece_moves, make_move
+from .board import Board
 from .checkers_game import CheckersGame
 from .settings import GameSettings
 from .timer import TimerManager
-from modules.rewards import RewardCalculator
-from .config import (load_stats, save_stats, load_ai_config, _config_manager, log_to_json)
+from .config import load_stats, save_stats, load_ai_config, _config_manager
 from .utils import CheckersError
+from modules.base_ai import BaseAI
+from modules.rewards import RewardCalculator
 
 # تنظیم لاگینگ با استفاده از ConfigManager
 config = _config_manager.load_config()
 project_root = _config_manager.get_project_root()
-log_file = os.path.join(project_root, config.get("log_file", "logs/game.log"))
+log_file_path = config.get("log_file", "logs/game.log")
+log_file = str(project_root / log_file_path)
 os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+# تنظیم handler برای فایل
+file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)  # فایل همه لاگ‌ها (شامل DEBUG) رو ذخیره می‌کنه
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# تنظیم handler برای ترمینال
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)  # ترمینال فقط INFO و بالاتر رو نشون می‌ده
+console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level")),
-    format='%(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(log_file, mode='a', encoding='utf-8')
-    ]
+    level=logging.DEBUG,  # سطح کلی لاگینگ
+    handlers=[file_handler, console_handler]
 )
 logger = logging.getLogger(__name__)
 
@@ -55,6 +64,7 @@ class MoveHistory:
             logger.debug("Game state saved")
         except Exception as e:
             logger.error(f"Error saving game state: {e}")
+            _config_manager.log_to_json(f"Error saving game state: {str(e)}", level="ERROR")
 
     def undo(self, game):
         try:
@@ -89,11 +99,12 @@ class MoveHistory:
             logger.info(f"Restored state: turn={game.turn}, multi_jump_active={game.multi_jump_active}")
         except Exception as e:
             logger.error(f"Error undoing move: {e}")
+            _config_manager.log_to_json(f"Error undoing move: {str(e)}", level="ERROR")
 
 class Game:
     def __init__(self, settings: Optional[GameSettings] = None, interface=None):
-        settings_dict = None  # مقداردهی اولیه
-        assets_dir = None  # مقداردهی اولیه
+        settings_dict = None
+        assets_dir = None
         self.board_size = config.get("board_size", 8)
         try:
             self.config = config
@@ -173,9 +184,9 @@ class Game:
             self.ai_players: Dict[str, 'BaseAI'] = {}
             self._init_ai_players()
             logger.info("Game initialized")
-            log_to_json("Game initialized successfully", level="INFO", extra_data={"game_mode": self.settings.game_mode})
+            _config_manager.log_to_json("Game initialized successfully", level="INFO", extra_data={"game_mode": self.settings.game_mode})
         except Exception as e:
-            log_to_json(
+            _config_manager.log_to_json(
                 f"Error initializing game: {str(e)}",
                 level="ERROR",
                 extra_data={
@@ -213,63 +224,80 @@ class Game:
             logger.info(f"AI players initialized: {list(self.ai_players.keys())}")
         except Exception as e:
             logger.error(f"Error initializing AI players: {e}")
-            log_to_json(f"Error initializing AI players: {str(e)}", level="ERROR")
+            _config_manager.log_to_json(f"Error initializing AI players: {str(e)}", level="ERROR")
             self.ai_players = {}
 
     @staticmethod
     def _load_ai_classes(config_dict):
         ai_type_to_class = {}
-        import importlib
         logger.debug(f"Project root: {project_root}")
-        logger.debug(
-            f"Subdirectories in project_root: {[d.name for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]}")
         for ai_type, ai_info in config_dict.get("ai_types", {}).items():
+            class_name = ""  # تعریف پیش‌فرض
             try:
-                module_name = ai_info.get("module", "")
+                module_name = ai_info.get("module", "")  # انتظار: modules.advanced_ai
                 class_name = ai_info.get("class", "")
                 logger.debug(f"Processing AI type: {ai_type}, module: {module_name}, class: {class_name}")
-                module_path = None
-                subdirs = [d for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]
-                for subdir in subdirs:
-                    candidate_path = subdir / f"{module_name}.py"
-                    logger.debug(f"Checking path: {candidate_path}")
-                    if candidate_path.exists():
-                        module_path = candidate_path
-                        break
-                if not module_path:
-                    logger.error(f"Module file {module_name}.py not found in any subdirectory of {project_root}")
-                    log_to_json(f"Module file {module_name}.py not found in any subdirectory", level="ERROR",
-                                extra_data={"ai_type": ai_type})
+                module_path_parts = module_name.split(".")
+                if len(module_path_parts) < 2 or module_path_parts[0] != "modules":
+                    logger.error(f"Invalid module name format: {module_name}, expected 'modules.<module>'")
+                    _config_manager.log_to_json(
+                        f"Invalid module name format: {module_name}",
+                        level="ERROR",
+                        extra_data={"ai_type": ai_type}
+                    )
                     continue
-                logger.debug(f"Found module path: {module_path}")
-                subdir_name = module_path.parent.name
-                full_module_name = f"{subdir_name}.{module_name}"
+                module_file_name = module_path_parts[-1]
+                module_path = project_root / "modules" / f"{module_file_name}.py"
+                logger.debug(f"Checking module path: {module_path}")
+                if not module_path.exists():
+                    logger.error(f"Module file {module_path} not found")
+                    _config_manager.log_to_json(
+                        f"Module file {module_path} not found",
+                        level="ERROR",
+                        extra_data={"ai_type": ai_type}
+                    )
+                    continue
                 if str(project_root) not in sys.path:
                     sys.path.append(str(project_root))
                     logger.debug(f"Added {project_root} to sys.path")
                 logger.debug(f"Current sys.path: {sys.path}")
-                module = importlib.import_module(full_module_name)
+                module = importlib.import_module(module_name)
                 if not hasattr(module, class_name):
-                    logger.error(f"Class '{class_name}' not found in module {full_module_name}")
-                    log_to_json(f"Class '{class_name}' not found in module {full_module_name}", level="ERROR")
+                    logger.error(f"Class '{class_name}' not found in module {module_name}")
+                    _config_manager.log_to_json(
+                        f"Class '{class_name}' not found in module {module_name}",
+                        level="ERROR",
+                        extra_data={"ai_type": ai_type}
+                    )
                     continue
                 ai_class = getattr(module, class_name)
-                if not isinstance(ai_class, type):
-                    logger.error(f"{class_name} is not a class")
-                    log_to_json(f"{class_name} is not a class", level="ERROR")
+                if not isinstance(ai_class, type) or not issubclass(ai_class, BaseAI) or ai_class == BaseAI:
+                    logger.error(f"{class_name} is not a valid AI class")
+                    _config_manager.log_to_json(
+                        f"{class_name} is not a valid AI class",
+                        level="ERROR",
+                        extra_data={"ai_type": ai_type}
+                    )
                     continue
                 ai_type_to_class[ai_type] = ai_class
                 logger.info(f"Successfully mapped {ai_type} to {class_name}")
+            except ImportError as e:
+                logger.error(f"ImportError loading AI class {class_name} for type {ai_type}: {e}")
+                _config_manager.log_to_json(
+                    f"ImportError loading AI class {class_name} for type {ai_type}: {str(e)}",
+                    level="ERROR",
+                    extra_data={"ai_type": ai_type}
+                )
             except Exception as e:
-                logger.error(f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {e}")
-                log_to_json(
-                    f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {str(e)}",
+                logger.error(f"Unexpected error loading AI class {class_name} for type {ai_type}: {e}")
+                _config_manager.log_to_json(
+                    f"Unexpected error loading AI class {class_name} for type {ai_type}: {str(e)}",
                     level="ERROR",
                     extra_data={"ai_type": ai_type}
                 )
         if not ai_type_to_class:
-            logger.error("No valid AI classes loaded _load_ai_classes")
-            log_to_json("No valid AI classes loaded", level="ERROR")
+            logger.error("No valid AI classes loaded in _load_ai_classes")
+            _config_manager.log_to_json("No valid AI classes loaded", level="ERROR")
         return ai_type_to_class
 
     def make_ai_move(self, ai_id: str) -> bool:
@@ -278,7 +306,7 @@ class Game:
         try:
             ai = self.ai_players.get(ai_id)
             if not ai:
-                log_to_json(
+                _config_manager.log_to_json(
                     f"No AI found for {ai_id}. Available AI players: {list(self.ai_players.keys())}",
                     level="ERROR",
                     extra_data={"ai_id": ai_id, "available_ai_players": list(self.ai_players.keys())}
@@ -286,19 +314,12 @@ class Game:
                 return False
             player_number = 1 if ai_id == "ai_1" else 2
             player = 1 if player_number == 1 else -1
-            log_to_json(
-                f"Attempting AI move for {ai_id}, multi_jump_active={self.multi_jump_active}, selected={self.selected}",
-                level="DEBUG",
-                extra_data={"ai_id": ai_id, "board": self.board.board.tolist()}
-            )
+            logger.debug(f"Attempting AI move for {ai_id}, multi_jump_active={self.multi_jump_active}, selected={self.selected}")
             valid_moves = self._get_ai_valid_moves(ai)
-            log_to_json(
-                f"Valid moves for {ai_id}: {list(valid_moves.keys())}",
-                level="DEBUG",
-                extra_data={"ai_id": ai_id, "valid_moves": [list(move) for move in valid_moves.keys()]}
-            )
+            logger.debug(f"Valid moves for {ai_id}: {list(valid_moves.keys())}")
             if not valid_moves:
-                log_to_json(
+                logger.warning(f"No valid moves available for {ai_id}")
+                _config_manager.log_to_json(
                     f"No valid moves available for {ai_id}",
                     level="WARNING",
                     extra_data={"ai_id": ai_id, "board": self.board.board.tolist()}
@@ -307,13 +328,10 @@ class Game:
                 return False
             valid_moves_formatted = list(valid_moves.keys())
             move = ai.get_move(self.board.board)
-            log_to_json(
-                f"Move returned by {ai_id}: {move}",
-                level="DEBUG",
-                extra_data={"ai_id": ai_id, "move": list(move) if move else None}
-            )
+            logger.debug(f"Move returned by {ai_id}: {move}")
             if not move or not isinstance(move, tuple) or len(move) != 4:
-                log_to_json(
+                logger.warning(f"Invalid move format returned by {ai_id}: {move}")
+                _config_manager.log_to_json(
                     f"Invalid move format returned by {ai_id}: {move}",
                     level="WARNING",
                     extra_data={"ai_id": ai_id, "move": list(move) if move else None,
@@ -321,7 +339,8 @@ class Game:
                 )
                 move = valid_moves_formatted[0]
             elif move not in valid_moves_formatted:
-                log_to_json(
+                logger.warning(f"Move {move} not in valid moves for {ai_id}")
+                _config_manager.log_to_json(
                     f"Move {move} not in valid moves for {ai_id}",
                     level="WARNING",
                     extra_data={"ai_id": ai_id, "move": list(move),
@@ -329,15 +348,12 @@ class Game:
                 )
                 move = valid_moves_formatted[0]
             from_row, from_col, to_row, to_col = move
-            log_to_json(
-                f"Validating move {move} for player {player}",
-                level="DEBUG",
-                extra_data={"ai_id": ai_id, "move": list(move), "board": self.board.board.tolist()}
-            )
+            logger.debug(f"Validating move {move} for player {player}")
             board_before = self.board.copy()
             new_board, is_promotion, has_more_jumps = make_move(self.board, move, player_number)
             if new_board is None:
-                log_to_json(
+                logger.error(f"Invalid AI move: {move}")
+                _config_manager.log_to_json(
                     f"Invalid AI move: {move}",
                     level="ERROR",
                     extra_data={"ai_id": ai_id, "move": list(move),
@@ -349,25 +365,18 @@ class Game:
             self.checkers_game.set_state(self.board.board)
             board_after = self.board.copy()
             reward = self.reward_calculator.get_reward(player_number=player_number)
-            log_to_json(
-                f"Updating AI {ai_id} with move {move}, reward {reward}",
-                level="DEBUG",
-                extra_data={"ai_id": ai_id, "move": list(move)}
-            )
+            logger.debug(f"Updating AI {ai_id} with move {move}, reward {reward}")
             ai.update(move, reward, board_before.board, board_after.board)
             is_jump = abs(to_row - from_row) == 2
             self._handle_multi_jump(to_row, to_col, is_jump, is_promotion, player_number)
-            log_to_json(
-                f"AI move executed: {move}",
-                level="INFO",
-                extra_data={"ai_id": ai_id, "move": list(move)}
-            )
+            logger.info(f"AI move executed: {move}")
             if self.interface:
                 piece_value = board_before.board[from_row, from_col]
                 self.interface.animate_move(piece_value, from_row, from_col, to_row, to_col, is_kinged=is_promotion)
             return True
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error in AI move for {ai_id}: {e}")
+            _config_manager.log_to_json(
                 f"Error in AI move for {ai_id}: {str(e)}",
                 level="ERROR",
                 extra_data={
@@ -389,7 +398,8 @@ class Game:
             moves = ai.get_valid_moves(self.board.board)
             return {(move[0], move[1], move[2], move[3]): [] for move in moves if len(move) == 4}
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error in _get_ai_valid_moves: {e}")
+            _config_manager.log_to_json(
                 f"Error in _get_ai_valid_moves: {str(e)}",
                 level="ERROR",
                 extra_data={"ai_id": ai.ai_id}
@@ -404,13 +414,16 @@ class Game:
             ai_id = "ai_1" if not self.turn else "ai_2"
             ai = self.ai_players.get(ai_id)
             if ai and self.settings.game_mode in ["human_vs_human", "human_vs_ai"]:
-                move = getattr(ai, 'suggest_move', ai.get_move)(self.board.board)
+                if hasattr(ai, 'suggest_move'):
+                    move = ai.suggest_move(self.board.board)
+                else:
+                    move = ai.get_move(self.board.board)
                 if move and isinstance(move, tuple) and len(move) == 4:
                     return move
             return None
         except Exception as e:
             logger.error(f"Error getting hint: {e}")
-            log_to_json(f"Error getting hint: {str(e)}", level="ERROR")
+            _config_manager.log_to_json(f"Error getting hint: {str(e)}", level="ERROR")
             return None
 
     def _handle_multi_jump(self, row, col, is_jump, is_promotion, player_number):
@@ -421,11 +434,7 @@ class Game:
             if not is_jump or is_promotion:
                 self.selected = None
                 self.turn = not self.turn
-                log_to_json(
-                    f"{'Simple move' if not is_jump else 'Jump move'}, turn switched to {'Player 2' if self.turn else 'Player 1'}",
-                    level="INFO",
-                    extra_data={"player_number": player_number, "is_jump": is_jump, "is_promotion": is_promotion}
-                )
+                logger.info(f"{'Simple move' if not is_jump else 'Jump move'}, turn switched to {'Player 2' if self.turn else 'Player 1'}")
             else:
                 additional_jumps = get_piece_moves(self.board, row, col, player)
                 jump_moves = {(row, col, to_row, to_col): skipped for (to_row, to_col), skipped in
@@ -434,23 +443,14 @@ class Game:
                     self.selected = (row, col)
                     self.valid_moves = jump_moves
                     self.multi_jump_active = True
-                    log_to_json(
-                        f"Multi-jump active for player {player_number} at ({row}, {col}) with moves: {list(jump_moves.keys())}",
-                        level="INFO",
-                        extra_data={"player_number": player_number,
-                                    "valid_moves": [list(move) for move in jump_moves.keys()]}
-                    )
+                    logger.info(f"Multi-jump active for player {player_number} at ({row}, {col}) with moves: {list(jump_moves.keys())}")
                 else:
                     self.selected = None
                     self.turn = not self.turn
-                    log_to_json(
-                        f"No additional jumps for player {player_number}, turn switched",
-                        level="INFO",
-                        extra_data={"player_number": player_number}
-                    )
+                    logger.info(f"No additional jumps for player {player_number}, turn switched")
         except Exception as e:
             logger.error(f"Error in _handle_multi_jump: {e}")
-            log_to_json(
+            _config_manager.log_to_json(
                 f"Error in _handle_multi_jump: {str(e)}",
                 level="ERROR",
                 extra_data={"player_number": player_number, "row": row, "col": col}
@@ -463,14 +463,10 @@ class Game:
             self.selected = None
             self.valid_moves = {}
             self.multi_jump_active = False
-            log_to_json(
-                f"Turn changed to {'Player 2' if self.turn else 'Player 1'}",
-                level="INFO",
-                extra_data={"turn": self.turn}
-            )
+            logger.info(f"Turn changed to {'Player 2' if self.turn else 'Player 1'}")
         except Exception as e:
             logger.error(f"Error changing turn: {e}")
-            log_to_json(f"Error changing turn: {str(e)}", level="ERROR")
+            _config_manager.log_to_json(f"Error changing turn: {str(e)}", level="ERROR")
 
     def get_valid_moves(self, board: np.ndarray) -> Dict[Tuple[int, int, int, int], List[Tuple[int, int]]]:
         try:
@@ -479,14 +475,11 @@ class Game:
             temp_game.current_player = 1 if not self.turn else -1
             legal_moves = temp_game.get_legal_moves()
             valid_moves = {(move[0], move[1], move[2], move[3]): [] for move in legal_moves if len(move) == 4}
-            log_to_json(
-                f"Valid moves retrieved: {valid_moves}",
-                level="DEBUG",
-                extra_data={"player": temp_game.current_player, "move_count": len(valid_moves)}
-            )
+            logger.debug(f"Valid moves retrieved: {valid_moves}")
             return valid_moves
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error in get_valid_moves: {e}")
+            _config_manager.log_to_json(
                 f"Error in get_valid_moves: {str(e)}",
                 level="ERROR",
                 extra_data={"board": board.tolist()}
@@ -507,7 +500,7 @@ class Game:
             ai_type_to_class = self._load_ai_classes(config_dict)
             if not ai_type_to_class:
                 logger.error("No valid AI classes loaded in update_ai_players")
-                log_to_json("No valid AI classes loaded", level="ERROR")
+                _config_manager.log_to_json("No valid AI classes loaded", level="ERROR")
                 return
             players = []
             game_mode = getattr(self.settings, "game_mode", "human_vs_human")
@@ -530,6 +523,9 @@ class Game:
                 ai_settings = config_dict["ai_configs"].get(player, {})
                 ai_type = ai_settings.get("ai_type", player_1_ai_type if player == "player_1" else player_2_ai_type)
                 model_name = ai_settings.get("ai_code", ai_type)
+                # افزودن مقادیر پیش‌فرض برای پارامترهای مورد نیاز
+                ai_settings.setdefault("ability_level", "default")
+                ai_settings.setdefault("training_params", {})
                 logger.debug(f"Initializing AI for {player}: ai_id={ai_id}, ai_type={ai_type}, model_name={model_name}")
                 if ai_type and ai_type != "none":
                     ai_class = ai_type_to_class.get(ai_type)
@@ -538,40 +534,50 @@ class Game:
                             self.ai_players[ai_id] = ai_class(
                                 game=self.checkers_game,
                                 model_name=model_name,
-                                ai_id=ai_id
+                                ai_id=ai_id,
+                                training_params=ai_settings.get("training_params", {}),
+                                ability_level=ai_settings.get("ability_level", "default")
                             )
                             logger.info(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
+                            _config_manager.log_to_json(
+                                f"Loaded AI: {ai_type} for {player}",
+                                level="INFO",
+                                extra_data={"ai_id": ai_id, "ai_type": ai_type}
+                            )
                         except Exception as e:
                             logger.error(f"Error loading AI {ai_type} for {ai_id}: {e}")
-                            log_to_json(f"Error loading AI {ai_type} for {ai_id}: {str(e)}", level="ERROR",
-                                        extra_data={"ai_id": ai_id})
+                            _config_manager.log_to_json(
+                                f"Error loading AI {ai_type} for {ai_id}: {str(e)}",
+                                level="ERROR",
+                                extra_data={"ai_id": ai_id, "ai_type": ai_type}
+                            )
                     else:
                         logger.error(f"No AI class found for type: {ai_type}")
-                        log_to_json(f"No AI class found for type: {ai_type}", level="ERROR",
-                                    extra_data={"ai_type": ai_type})
+                        _config_manager.log_to_json(
+                            f"No AI class found for type: {ai_type}",
+                            level="ERROR",
+                            extra_data={"ai_type": ai_type}
+                        )
         except Exception as e:
             logger.error(f"Error updating AI players: {e}")
-            log_to_json(f"Error updating AI players: {str(e)}", level="ERROR")
+            _config_manager.log_to_json(f"Error updating AI players: {str(e)}", level="ERROR")
             self.ai_players = {}
 
     def select(self, row, col):
         try:
             if self.paused or not self.game_started:
-                log_to_json(
-                    "Cannot select piece while paused or game not started",
-                    level="DEBUG",
-                    extra_data={"paused": self.paused, "game_started": self.game_started}
-                )
+                logger.debug("Cannot select piece while paused or game not started")
                 return False
             piece = self.board.board[row, col]
             player = 1 if not self.turn else -1
+            logger.debug(f"Selecting piece at ({row}, {col}), piece={piece}, player={player}, game_mode={self.settings.game_mode}")
             if piece != 0 and piece * player > 0:
                 valid_moves = get_piece_moves(self.board, row, col, player)
                 if valid_moves:
                     self.selected = (row, col)
                     self.valid_moves = {(row, col, to_row, to_col): skipped for (to_row, to_col), skipped in
                                         valid_moves.items()}
-                    logger.debug(f"Selected piece at ({row}, {col}) with valid moves: {self.valid_moves}")
+                    logger.info(f"Selected piece at ({row}, {col}) with valid moves: {list(self.valid_moves.keys())}")
                     return True
                 logger.debug(f"No valid moves for piece at ({row}, {col})")
             else:
@@ -579,18 +585,17 @@ class Game:
             return False
         except Exception as e:
             logger.error(f"Error selecting piece at ({row}, {col}): {e}")
-            log_to_json(f"Error selecting piece at ({row}, {col}): {str(e)}", level="ERROR",
-                        extra_data={"row": row, "col": col})
+            _config_manager.log_to_json(
+                f"Error selecting piece at ({row}, {col}): {str(e)}",
+                level="ERROR",
+                extra_data={"row": row, "col": col}
+            )
             return False
 
     def _move(self, move: Tuple[int, int, int, int]):
         try:
             if self.paused or not self.game_started:
-                log_to_json(
-                    "Cannot move while paused or game not started",
-                    level="DEBUG",
-                    extra_data={"paused": self.paused, "game_started": self.game_started}
-                )
+                logger.debug("Cannot move while paused or game not started")
                 return False
             start_row, start_col, to_row, to_col = move
             if self.selected and (start_row, start_col) == self.selected and (to_row, to_col) in [(m[2], m[3]) for m in
@@ -704,7 +709,8 @@ class Game:
                 self.hovered_piece = None
             return None
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error in check_mouse_hover: {e}")
+            _config_manager.log_to_json(
                 f"Error in check_mouse_hover: {str(e)}",
                 level="ERROR",
                 extra_data={"pos": pos}
@@ -717,7 +723,7 @@ class Game:
                 self._update_game()
             except Exception as e:
                 logger.error(f"Error updating game: {e}")
-                log_to_json(
+                _config_manager.log_to_json(
                     f"Error updating game: {str(e)}",
                     level="ERROR",
                     extra_data={"game_started": self.game_started, "game_over": self.game_over}
@@ -742,13 +748,11 @@ class Game:
                             return None
             self.game_over = True
             self.winner = not self.turn
-            log_to_json(
-                f"Game over, winner: {'black' if self.winner else 'white'}",
-                level="INFO"
-            )
+            logger.info(f"Game over, winner: {'black' if self.winner else 'white'}")
             return self.winner
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error checking winner: {e}")
+            _config_manager.log_to_json(
                 f"Error checking winner: {str(e)}",
                 level="ERROR"
             )
@@ -785,7 +789,7 @@ class Game:
                     self.player_2_wins += 1
             save_stats({"player_1_wins": self.player_1_wins, "player_2_wins": self.player_2_wins})
             logger.info(f"Game ended, winner: {self.winner}")
-            log_to_json(
+            _config_manager.log_to_json(
                 f"Game ended, winner: {self.winner}",
                 level="INFO",
                 extra_data={"player_1_wins": self.player_1_wins, "player_2_wins": self.player_2_wins}
@@ -793,7 +797,7 @@ class Game:
 
     def handle_click(self, pos):
         if self.paused:
-            log_to_json("Cannot handle click while paused", level="DEBUG", extra_data={"paused": self.paused})
+            logger.debug("Cannot handle click while paused")
             return False
         try:
             x, y = pos
@@ -806,26 +810,38 @@ class Game:
                     "square_size")
                 col = (x - self.config.get("border_thickness")) // self.config.get("square_size")
                 if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
+                    logger.debug(f"Click outside board: ({row}, {col})")
                     return False
+                logger.debug(f"Processing click at ({row}, {col}), turn={self.turn}, game_mode={self.settings.game_mode}")
                 if self.selected:
                     move = (self.selected[0], self.selected[1], row, col)
                     if (move[2], move[3]) in [(m[2], m[3]) for m in self.valid_moves]:
                         self.history.save_state(self)
-                        return self._move(move)
+                        result = self._move(move)
+                        logger.info(f"Move attempted: {move}, success={result}")
+                        return result
                 result = self.select(row, col)
                 if not result and self.multi_jump_active and self.selected:
+                    player = 1 if not self.turn else -1
                     self.valid_moves = {(self.selected[0], self.selected[1], to_row, to_col): skipped for
                                         (to_row, to_col), skipped in
-                                        get_piece_moves(self.board, *self.selected, 1 if not self.turn else -1).items()}
+                                        get_piece_moves(self.board, *self.selected, player).items()}
+                    logger.debug(f"Updated valid moves for multi-jump: {list(self.valid_moves.keys())}")
+                logger.debug(f"Select result: {result}, selected={self.selected}")
                 return result
             if self.game_over:
                 self.selected = None
                 self.valid_moves = {}
                 self.multi_jump_active = False
+                logger.debug("Game over, resetting selection")
             return False
         except Exception as e:
             logger.error(f"Error handling click at {pos}: {e}")
-            log_to_json(f"Error handling click at {pos}: {str(e)}", level="ERROR", extra_data={"pos": pos})
+            _config_manager.log_to_json(
+                f"Error handling click at {pos}: {str(e)}",
+                level="ERROR",
+                extra_data={"pos": pos, "game_mode": self.settings.game_mode}
+            )
             return False
 
     def _is_human_turn(self):
@@ -843,52 +859,36 @@ class Game:
             circle_radius = square_size // 4
             for move, _ in self.valid_moves.items():
                 if not (isinstance(move, tuple) and len(move) == 4 and all(isinstance(x, int) for x in move)):
-                    log_to_json(
-                        f"Invalid move format in valid_moves: {move}",
-                        level="ERROR",
-                        extra_data={"move": list(move) if isinstance(move, tuple) else move}
-                    )
+                    logger.error(f"Invalid move format in valid_moves: {move}")
                     continue
                 _, _, row, col = move
                 if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
-                    log_to_json(
-                        f"Invalid move position: ({row}, {col})",
-                        level="ERROR",
-                        extra_data={"move": [row, col]}
-                    )
+                    logger.error(f"Invalid move position: ({row}, {col})")
                     continue
                 x = border_thickness + col * square_size + square_size // 2
                 y = menu_height + border_thickness + row * square_size + square_size // 2
                 surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
                 pygame.draw.circle(surface, valid_move_color, (square_size // 2, square_size // 2), circle_radius)
                 self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
-                log_to_json(f"Drawing valid move at ({row}, {col})", level="DEBUG", extra_data={"move": [row, col]})
+                logger.debug(f"Drawing valid move at ({row}, {col})")
             if hovered_moves:
                 for move, _ in hovered_moves.items():
                     if not (isinstance(move, tuple) and len(move) == 4 and all(isinstance(x, int) for x in move)):
-                        log_to_json(
-                            f"Invalid move format in hovered_moves: {move}",
-                            level="ERROR",
-                            extra_data={"move": list(move) if isinstance(move, tuple) else move}
-                        )
+                        logger.error(f"Invalid move format in hovered_moves: {move}")
                         continue
                     _, _, row, col = move
                     if not (0 <= row < self.board.board_size and 0 <= col < self.board.board_size):
-                        log_to_json(
-                            f"Invalid hovered move position: ({row}, {col})",
-                            level="ERROR",
-                            extra_data={"move": [row, col]}
-                        )
+                        logger.error(f"Invalid hovered move position: ({row}, {col})")
                         continue
                     x = border_thickness + col * square_size + square_size // 2
                     y = menu_height + border_thickness + row * square_size + square_size // 2
                     surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
                     pygame.draw.circle(surface, valid_move_color, (square_size // 2, square_size // 2), circle_radius)
                     self.screen.blit(surface, (x - square_size // 2, y - square_size // 2))
-                    log_to_json(f"Drawing hovered move at ({row}, {col})", level="DEBUG",
-                                extra_data={"move": [row, col]})
+                    logger.debug(f"Drawing hovered move at ({row}, {col})")
         except Exception as e:
-            log_to_json(
+            logger.error(f"Error in draw_valid_moves: {e}")
+            _config_manager.log_to_json(
                 f"Error in draw_valid_moves: {str(e)}",
                 level="ERROR",
                 extra_data={"valid_moves": [list(k) for k in self.valid_moves.keys()] if self.valid_moves else None,
@@ -901,4 +901,4 @@ class Game:
             logger.info("Game state saved")
         except Exception as e:
             logger.error(f"Error saving game state: {e}")
-            log_to_json(f"Error saving game state: {str(e)}", level="ERROR")
+            _config_manager.log_to_json(f"Error saving game state: {str(e)}", level="ERROR")

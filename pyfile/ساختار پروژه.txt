@@ -1,0 +1,31 @@
+ساختار پروژه:
+ماژولهای زیر در پوشه pyfile:
+__ini__.py
+__main__.py
+board.py
+interface.py
+board.py
+checkers_core.py
+checkers_game.py
+config.py
+constants.py
+utils.py
+settings.py
+game.py
+windows.py
+
+و ماژولهای زیر در پوشه modules
+__ini__.py
+advanced ai.py
+alphazero ai.py
+alphazero_net.py
+base ai.py
+learn_method.py
+mcts.py
+minimax_ai.py
+progress_tracker.py
+train.py
+rewards.py
+self_play.py
+
+پوشه های pyfile و modules و assets و configs و logs و move_history و pth همگی در یک پوشه هستند. برنامه از داخل پوشه اخیر، با دستور -m اجرا می شود.

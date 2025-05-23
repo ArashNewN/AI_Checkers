@@ -9,7 +9,7 @@ def hex_to_rgb(hex_color):
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
-        return (r, g, b)
+        return r, g, b
     except Exception as e:
         import logging
         logging.warning(f"Invalid RGB input: #{hex_color}. Using default color (255, 255, 255)")

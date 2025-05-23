@@ -7,9 +7,9 @@ import logging
 import hashlib
 import json
 import gzip
-
 from contextlib import closing
 from time import time
+
 from pyfile.config import load_ai_config
 
 try:
@@ -20,7 +20,7 @@ except RuntimeError:
 log_dir = os.path.dirname(os.path.dirname(__file__))
 log_file = os.path.join(log_dir, 'mcts.log')
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
