@@ -1,6 +1,7 @@
 #game.py
 import pygame
 import sys
+import os
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
@@ -12,17 +13,21 @@ from .checkers_game import CheckersGame
 from .settings import GameSettings
 from .timer import TimerManager
 from modules.rewards import RewardCalculator
-from .config import load_stats, save_stats, load_ai_config, load_config, _config_manager, log_to_json
+from .config import load_stats, save_stats, load_ai_config, _config_manager, log_to_json
 from .utils import CheckersError
 
 
-config = load_config()
+# تنظیم لاگینگ با استفاده از ConfigManager
+config = _config_manager.load_config()
+project_root = _config_manager.get_project_root()
+log_file = os.path.join(project_root, config.get("log_file", "logs/game.log"))
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level", "DEBUG")),
-    format='[%(levelname)s] %(message)s',
+    level=getattr(logging, config.get("logging_level")),
+    format='%(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('game.log'),
-        logging.StreamHandler()
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, mode='a', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)

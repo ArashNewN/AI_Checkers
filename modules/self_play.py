@@ -16,13 +16,19 @@ parent_dir = current_dir.parent
 move_history_dir = parent_dir / "move_history"
 move_history_dir.mkdir(parents=True, exist_ok=True)  # ایجاد پوشه اگر وجود ندارد
 
-# تنظیم لاگ‌گیری
+# تنظیم لاگینگ با استفاده از ConfigManager
+config = _config_manager.load_config()
+project_root = _config_manager.get_project_root()
+log_file = os.path.join(project_root, config.get("log_file", "logs/self_play.log"))
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.get("logging_level")),
     format='%(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(), logging.FileHandler('self_play.log')]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    ]
 )
-logger = logging.getLogger(__name__)
 
 def self_play(game, neural_net, start_game=0):
     """

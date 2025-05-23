@@ -3,16 +3,16 @@
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
 from .base_ai import BaseAI
-from pyfile.config import ConfigManager, DEFAULT_AI_PARAMS
 from .progress_tracker import ProgressTracker, logger
 from .rewards import RewardCalculator
+
+from pyfile.config import ConfigManager, DEFAULT_AI_PARAMS
 
 # نمونه ConfigManager برای مدیریت مرکزی تنظیمات
 _config_manager = ConfigManager()
