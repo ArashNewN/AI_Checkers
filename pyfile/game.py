@@ -1,4 +1,3 @@
-#game.py
 import pygame
 import sys
 import os
@@ -13,9 +12,8 @@ from .checkers_game import CheckersGame
 from .settings import GameSettings
 from .timer import TimerManager
 from modules.rewards import RewardCalculator
-from .config import load_stats, save_stats, load_ai_config, _config_manager, log_to_json
+from .config import (load_stats, save_stats, load_ai_config, _config_manager, log_to_json)
 from .utils import CheckersError
-
 
 # تنظیم لاگینگ با استفاده از ConfigManager
 config = _config_manager.load_config()
@@ -33,7 +31,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MoveHistory:
-    # بدون تغییر
     def __init__(self):
         self.move_history = []
         self.redo_stack = []
@@ -95,9 +92,11 @@ class MoveHistory:
 
 class Game:
     def __init__(self, settings: Optional[GameSettings] = None, interface=None):
-        self.board_size = _config_manager.load_config()["board_size"]
+        settings_dict = None  # مقداردهی اولیه
+        assets_dir = None  # مقداردهی اولیه
+        self.board_size = config.get("board_size", 8)
         try:
-            self.config = _config_manager.load_config()
+            self.config = config
             self.hovered_piece = None
             if isinstance(settings, GameSettings):
                 self.settings = settings
@@ -107,7 +106,6 @@ class Game:
                     if key not in settings_dict:
                         settings_dict[key] = value
                 assets_dir = settings_dict.get("assets_dir", "assets")
-                project_root = _config_manager.get_project_root()
                 settings_dict["player_1_piece_image"] = settings_dict.get("player_1_piece_image") or str(
                     project_root / assets_dir / "white_piece.png")
                 settings_dict["player_2_piece_image"] = settings_dict.get("player_2_piece_image") or str(
@@ -116,7 +114,6 @@ class Game:
                     project_root / assets_dir / "white_king.png")
                 settings_dict["player_2_king_image"] = settings_dict.get("player_2_king_image") or str(
                     project_root / assets_dir / "black_king.png")
-                # تعریف کلیدهای معتبر برای GameSettings
                 valid_settings_keys = {
                     "window_width", "window_height", "board_size", "game_mode", "player_1_ai_type",
                     "player_2_ai_type", "player_starts", "use_timer", "game_time", "ai_pause_time",
@@ -130,17 +127,15 @@ class Game:
                 except TypeError as e:
                     logger.error(f"Error creating GameSettings: {e}, filtered_settings={filtered_settings}")
                     raise
-                # تنظیم پیش‌فرض برای game_mode و ai_types
                 if not hasattr(self.settings, "game_mode") or not self.settings.game_mode:
                     setattr(self.settings, "game_mode", "ai_vs_ai")
-                ai_config = _config_manager.load_ai_config()
+                ai_config = load_ai_config()
                 available_ai_types = list(ai_config.get("ai_types", {}).keys())
                 logger.debug(f"Available AI types: {available_ai_types}")
                 if not hasattr(self.settings, "player_1_ai_type") or not self.settings.player_1_ai_type:
                     setattr(self.settings, "player_1_ai_type", available_ai_types[0] if available_ai_types else "none")
                 if not hasattr(self.settings, "player_2_ai_type") or not self.settings.player_2_ai_type:
                     setattr(self.settings, "player_2_ai_type", available_ai_types[0] if available_ai_types else "none")
-            # بقیه کد بدون تغییر
             self.interface = interface
             self.screen = pygame.display.set_mode((
                 getattr(self.settings, "window_width", 940),
@@ -178,19 +173,29 @@ class Game:
             self.ai_players: Dict[str, 'BaseAI'] = {}
             self._init_ai_players()
             logger.info("Game initialized")
+            log_to_json("Game initialized successfully", level="INFO", extra_data={"game_mode": self.settings.game_mode})
         except Exception as e:
-            logger.error(f"Error initializing game: {e}")
+            log_to_json(
+                f"Error initializing game: {str(e)}",
+                level="ERROR",
+                extra_data={
+                    "settings_dict": settings_dict,
+                    "assets_dir": assets_dir
+                }
+            )
             raise
 
     def _init_fonts(self):
         font_name = 'Vazir' if 'Vazir' in pygame.font.get_fonts() else 'Arial'
         self.font = pygame.font.SysFont(font_name, 24)
         self.small_font = pygame.font.SysFont(font_name, 18)
+        logger.info("Fonts initialized")
 
     def _init_stats(self):
         stats = load_stats()
         self.player_1_wins = stats.get("player_1_wins", 0)
         self.player_2_wins = stats.get("player_2_wins", 0)
+        logger.info(f"Stats initialized: player_1_wins={self.player_1_wins}, player_2_wins={self.player_2_wins}")
 
     def _init_ai_players(self):
         try:
@@ -209,7 +214,63 @@ class Game:
         except Exception as e:
             logger.error(f"Error initializing AI players: {e}")
             log_to_json(f"Error initializing AI players: {str(e)}", level="ERROR")
-            self.ai_players = {}  # Clear AI players on error
+            self.ai_players = {}
+
+    @staticmethod
+    def _load_ai_classes(config_dict):
+        ai_type_to_class = {}
+        import importlib
+        logger.debug(f"Project root: {project_root}")
+        logger.debug(
+            f"Subdirectories in project_root: {[d.name for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]}")
+        for ai_type, ai_info in config_dict.get("ai_types", {}).items():
+            try:
+                module_name = ai_info.get("module", "")
+                class_name = ai_info.get("class", "")
+                logger.debug(f"Processing AI type: {ai_type}, module: {module_name}, class: {class_name}")
+                module_path = None
+                subdirs = [d for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]
+                for subdir in subdirs:
+                    candidate_path = subdir / f"{module_name}.py"
+                    logger.debug(f"Checking path: {candidate_path}")
+                    if candidate_path.exists():
+                        module_path = candidate_path
+                        break
+                if not module_path:
+                    logger.error(f"Module file {module_name}.py not found in any subdirectory of {project_root}")
+                    log_to_json(f"Module file {module_name}.py not found in any subdirectory", level="ERROR",
+                                extra_data={"ai_type": ai_type})
+                    continue
+                logger.debug(f"Found module path: {module_path}")
+                subdir_name = module_path.parent.name
+                full_module_name = f"{subdir_name}.{module_name}"
+                if str(project_root) not in sys.path:
+                    sys.path.append(str(project_root))
+                    logger.debug(f"Added {project_root} to sys.path")
+                logger.debug(f"Current sys.path: {sys.path}")
+                module = importlib.import_module(full_module_name)
+                if not hasattr(module, class_name):
+                    logger.error(f"Class '{class_name}' not found in module {full_module_name}")
+                    log_to_json(f"Class '{class_name}' not found in module {full_module_name}", level="ERROR")
+                    continue
+                ai_class = getattr(module, class_name)
+                if not isinstance(ai_class, type):
+                    logger.error(f"{class_name} is not a class")
+                    log_to_json(f"{class_name} is not a class", level="ERROR")
+                    continue
+                ai_type_to_class[ai_type] = ai_class
+                logger.info(f"Successfully mapped {ai_type} to {class_name}")
+            except Exception as e:
+                logger.error(f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {e}")
+                log_to_json(
+                    f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {str(e)}",
+                    level="ERROR",
+                    extra_data={"ai_type": ai_type}
+                )
+        if not ai_type_to_class:
+            logger.error("No valid AI classes loaded _load_ai_classes")
+            log_to_json("No valid AI classes loaded", level="ERROR")
+        return ai_type_to_class
 
     def make_ai_move(self, ai_id: str) -> bool:
         move: Optional[Tuple[int, int, int, int]] = None
@@ -223,7 +284,6 @@ class Game:
                     extra_data={"ai_id": ai_id, "available_ai_players": list(self.ai_players.keys())}
                 )
                 return False
-
             player_number = 1 if ai_id == "ai_1" else 2
             player = 1 if player_number == 1 else -1
             log_to_json(
@@ -231,14 +291,12 @@ class Game:
                 level="DEBUG",
                 extra_data={"ai_id": ai_id, "board": self.board.board.tolist()}
             )
-
             valid_moves = self._get_ai_valid_moves(ai)
             log_to_json(
                 f"Valid moves for {ai_id}: {list(valid_moves.keys())}",
                 level="DEBUG",
                 extra_data={"ai_id": ai_id, "valid_moves": [list(move) for move in valid_moves.keys()]}
             )
-
             if not valid_moves:
                 log_to_json(
                     f"No valid moves available for {ai_id}",
@@ -247,16 +305,13 @@ class Game:
                 )
                 self.turn = not self.turn
                 return False
-
             valid_moves_formatted = list(valid_moves.keys())
-
             move = ai.get_move(self.board.board)
             log_to_json(
                 f"Move returned by {ai_id}: {move}",
                 level="DEBUG",
                 extra_data={"ai_id": ai_id, "move": list(move) if move else None}
             )
-
             if not move or not isinstance(move, tuple) or len(move) != 4:
                 log_to_json(
                     f"Invalid move format returned by {ai_id}: {move}",
@@ -273,14 +328,12 @@ class Game:
                                 "valid_moves": [list(m) for m in valid_moves_formatted]}
                 )
                 move = valid_moves_formatted[0]
-
             from_row, from_col, to_row, to_col = move
             log_to_json(
                 f"Validating move {move} for player {player}",
                 level="DEBUG",
                 extra_data={"ai_id": ai_id, "move": list(move), "board": self.board.board.tolist()}
             )
-
             board_before = self.board.copy()
             new_board, is_promotion, has_more_jumps = make_move(self.board, move, player_number)
             if new_board is None:
@@ -292,7 +345,6 @@ class Game:
                 )
                 self.turn = not self.turn
                 return False
-
             self.board = new_board
             self.checkers_game.set_state(self.board.board)
             board_after = self.board.copy()
@@ -302,9 +354,7 @@ class Game:
                 level="DEBUG",
                 extra_data={"ai_id": ai_id, "move": list(move)}
             )
-
             ai.update(move, reward, board_before.board, board_after.board)
-
             is_jump = abs(to_row - from_row) == 2
             self._handle_multi_jump(to_row, to_col, is_jump, is_promotion, player_number)
             log_to_json(
@@ -312,13 +362,10 @@ class Game:
                 level="INFO",
                 extra_data={"ai_id": ai_id, "move": list(move)}
             )
-
             if self.interface:
                 piece_value = board_before.board[from_row, from_col]
                 self.interface.animate_move(piece_value, from_row, from_col, to_row, to_col, is_kinged=is_promotion)
-
             return True
-
         except Exception as e:
             log_to_json(
                 f"Error in AI move for {ai_id}: {str(e)}",
@@ -339,7 +386,7 @@ class Game:
             if self.multi_jump_active and self.selected:
                 moves = get_piece_moves(self.board, *self.selected, player)
                 return {(self.selected[0], self.selected[1], to_row, to_col): skipped for (to_row, to_col), skipped in moves.items()}
-            moves = ai.get_valid_moves(self.board.board, )
+            moves = ai.get_valid_moves(self.board.board)
             return {(move[0], move[1], move[2], move[3]): [] for move in moves if len(move) == 4}
         except Exception as e:
             log_to_json(
@@ -359,7 +406,7 @@ class Game:
             if ai and self.settings.game_mode in ["human_vs_human", "human_vs_ai"]:
                 move = getattr(ai, 'suggest_move', ai.get_move)(self.board.board)
                 if move and isinstance(move, tuple) and len(move) == 4:
-                    return move  # Return (from_row, from_col, to_row, to_col)
+                    return move
             return None
         except Exception as e:
             logger.error(f"Error getting hint: {e}")
@@ -382,8 +429,7 @@ class Game:
             else:
                 additional_jumps = get_piece_moves(self.board, row, col, player)
                 jump_moves = {(row, col, to_row, to_col): skipped for (to_row, to_col), skipped in
-                              additional_jumps.items() if
-                              abs(to_row - row) == 2}
+                              additional_jumps.items() if abs(to_row - row) == 2}
                 if jump_moves:
                     self.selected = (row, col)
                     self.valid_moves = jump_moves
@@ -447,74 +493,9 @@ class Game:
             )
             raise CheckersError(f"Failed to get valid moves: {str(e)}")
 
-    def _load_ai_classes(self, config_dict):
-        ai_type_to_class = {}
-        import importlib
-        project_root = _config_manager.get_project_root()
-        logger.debug(f"Project root: {project_root}")
-        logger.debug(
-            f"Subdirectories in project_root: {[d.name for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]}")
-
-        for ai_type, ai_info in config_dict.get("ai_types", {}).items():
-            try:
-                module_name = ai_info.get("module", "")
-                class_name = ai_info.get("class", "")
-                logger.debug(f"Processing AI type: {ai_type}, module: {module_name}, class: {class_name}")
-
-                module_path = None
-                subdirs = [d for d in project_root.iterdir() if d.is_dir() and not d.name.startswith('.')]
-                for subdir in subdirs:
-                    candidate_path = subdir / f"{module_name}.py"
-                    logger.debug(f"Checking path: {candidate_path}")
-                    if candidate_path.exists():
-                        module_path = candidate_path
-                        break
-
-                if not module_path:
-                    logger.error(f"Module file {module_name}.py not found in any subdirectory of {project_root}")
-                    log_to_json(f"Module file {module_name}.py not found in any subdirectory", level="ERROR",
-                                extra_data={"ai_type": ai_type})
-                    continue
-
-                logger.debug(f"Found module path: {module_path}")
-
-                subdir_name = module_path.parent.name
-                full_module_name = f"{subdir_name}.{module_name}"
-
-                if str(project_root) not in sys.path:
-                    sys.path.append(str(project_root))
-                    logger.debug(f"Added {project_root} to sys.path")
-                logger.debug(f"Current sys.path: {sys.path}")
-
-                module = importlib.import_module(full_module_name)
-                if not hasattr(module, class_name):
-                    logger.error(f"Class '{class_name}' not found in module {full_module_name}")
-                    log_to_json(f"Class '{class_name}' not found in module {full_module_name}", level="ERROR")
-                    continue
-
-                ai_class = getattr(module, class_name)
-                if not isinstance(ai_class, type):
-                    logger.error(f"{class_name} is not a class")
-                    log_to_json(f"{class_name} is not a class", level="ERROR")
-                    continue
-
-                ai_type_to_class[ai_type] = ai_class
-                logger.info(f"Successfully mapped {ai_type} to {class_name}")
-            except Exception as e:
-                logger.error(f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {e}")
-                log_to_json(
-                    f"Error importing AI class {ai_info.get('class', 'unknown')} for type {ai_type}: {str(e)}",
-                    level="ERROR",
-                    extra_data={"ai_type": ai_type}
-                )
-        if not ai_type_to_class:
-            logger.error("No valid AI classes loaded _load_ai_classes")
-            log_to_json("No valid AI classes loaded", level="ERROR")
-        return ai_type_to_class
-
     def update_ai_players(self, config_dict=None):
         try:
-            config_dict = config_dict or _config_manager.load_ai_config()
+            config_dict = config_dict or load_ai_config()
             config_dict["game_settings"] = {
                 "player_1_piece_image": getattr(self.settings, "player_1_piece_image", ""),
                 "player_2_piece_image": getattr(self.settings, "player_2_piece_image", ""),
@@ -523,7 +504,7 @@ class Game:
                 "board_size": getattr(self.settings, "board_size", 8)
             }
             logger.debug(f"Game settings in config_dict: {config_dict['game_settings']}")
-            ai_type_to_class = self._load_ai_classes(config_dict)  # فراخوانی با config_dict
+            ai_type_to_class = self._load_ai_classes(config_dict)
             if not ai_type_to_class:
                 logger.error("No valid AI classes loaded in update_ai_players")
                 log_to_json("No valid AI classes loaded", level="ERROR")
@@ -543,7 +524,7 @@ class Game:
             elif player_2_ai_type != "none":
                 players = ["player_2"]
             logger.debug(f"Players to initialize: {players}")
-            self.ai_players = {}  # Clear existing AI players
+            self.ai_players = {}
             for player in players:
                 ai_id = "ai_1" if player == "player_1" else "ai_2"
                 ai_settings = config_dict["ai_configs"].get(player, {})
@@ -571,7 +552,7 @@ class Game:
         except Exception as e:
             logger.error(f"Error updating AI players: {e}")
             log_to_json(f"Error updating AI players: {str(e)}", level="ERROR")
-            self.ai_players = {}  # Clear AI players on error
+            self.ai_players = {}
 
     def select(self, row, col):
         try:
@@ -915,4 +896,9 @@ class Game:
             )
 
     def save_game_state(self):
-        self.history.save_state(self)
+        try:
+            self.history.save_state(self)
+            logger.info("Game state saved")
+        except Exception as e:
+            logger.error(f"Error saving game state: {e}")
+            log_to_json(f"Error saving game state: {str(e)}", level="ERROR")

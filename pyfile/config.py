@@ -677,3 +677,5 @@ def save_stats(stats: Dict):
 
 def log_to_json(message: str, level: str = "DEBUG", extra_data: Optional[Dict] = None):
     ConfigManager.log_to_json(message, level, extra_data)
+
+
