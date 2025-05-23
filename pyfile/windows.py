@@ -206,6 +206,7 @@ class SettingsWindow(BaseWindow):
                     if module_name in ["__init__", "windows", "base_ai", "self_play", "train", "train_advanced"]:
                         logger.debug(f"Skipping file: {module_name}")
                         continue
+                    module_path = None  # مقدار پیش‌فرض
                     try:
                         module_path = f"{ai_dir.replace('/', '.')}.{module_name}"
                         module = importlib.import_module(module_path)
@@ -226,8 +227,9 @@ class SettingsWindow(BaseWindow):
                                 else:
                                     logger.debug(f"Skipped {module_name}.{attr_name}: Invalid metadata")
                     except Exception as e:
-                        logger.error(f"Error loading {module_path}: {str(e)}")
-                        _config_manager.log_to_json(f"Error loading {module_path}: {str(e)}", level="ERROR")
+                        error_path = module_path if module_path else f"{ai_dir}/{module_name}"
+                        logger.error(f"Error loading {error_path}: {str(e)}")
+                        _config_manager.log_to_json(f"Error loading {error_path}: {str(e)}", level="ERROR")
 
             ai_config = _config_manager.load_ai_config()
             for module in ai_modules:
@@ -250,7 +252,7 @@ class SettingsWindow(BaseWindow):
             logger.debug(f"Initialized ai_types: {self.ai_types}")
             _config_manager.log_to_json("AI modules initialized", level="INFO", extra_data={"ai_types": self.ai_types})
         except Exception as e:
-            logger.error(f"Error in initialize_ai_modules: {e}")
+            logger.error(f"Error in initialize_ai_modules: {str(e)}")
             self.ai_types = ["none"]
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
             _config_manager.log_to_json(f"Error in initialize_ai_modules: {str(e)}", level="ERROR")

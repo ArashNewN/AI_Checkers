@@ -1,3 +1,4 @@
+#checkers_core.py
 from typing import Dict, List, Optional, Tuple
 
 from .board import Board
@@ -35,21 +36,22 @@ def get_piece_moves(board: Board, row: int, col: int, player: int) -> Dict[Tuple
         for dr, dc in directions:
             # حرکت ساده
             r, c = row + dr, col + dc
-            if board.board_size > r >= 0 == board.board[r, c] and 0 <= c < board.board_size:
-                moves[(r, c)] = []
+            if 0 <= r < board.board_size and 0 <= c < board.board_size:  # بررسی محدوده قبل از دسترسی
+                if board.board[r, c] == 0:
+                    moves[(r, c)] = []
             # حرکت پرشی
             r, c = row + 2 * dr, col + 2 * dc
             mid_r, mid_c = row + dr, col + dc
-            if (
-                    board.board_size > r >= 0 == board.board[r, c] and board.board_size > c >= 0 != board.board[
-                mid_r, mid_c] and
-                (player == 1 and board.board[mid_r, mid_c] < 0) or
-                (player == -1 and board.board[mid_r, mid_c] > 0)):
-                moves[(r, c)] = [(mid_r, mid_c)]
+            if (0 <= r < board.board_size and 0 <= c < board.board_size and
+                0 <= mid_r < board.board_size and 0 <= mid_c < board.board_size):  # بررسی محدوده قبل از دسترسی
+                if (board.board[r, c] == 0 and board.board[mid_r, mid_c] != 0 and
+                    ((player == 1 and board.board[mid_r, mid_c] < 0) or
+                     (player == -1 and board.board[mid_r, mid_c] > 0))):
+                    moves[(r, c)] = [(mid_r, mid_c)]
         log_to_json(
             f"Calculated moves for piece at ({row}, {col}): {moves}",
             level="DEBUG",
-            extra_data={"player": player, "piece": piece, "moves": moves}
+            extra_data={"player": player, "piece": piece, "moves": list(moves.keys())}
         )
         return moves
     except Exception as e:
@@ -113,11 +115,11 @@ def make_move(board: Board, move: Tuple[int, int, int, int], player_number: int)
         if is_jump and not is_promotion:
             additional_jumps = get_piece_moves(new_board, to_row, to_col, player)
             has_more_jumps = any(abs(to_r - to_row) == 2 for to_r, to_c in additional_jumps.keys())
-        log_to_json(
-            f"Move {move} executed: is_jump={is_jump}, is_promotion={is_promotion}, has_more_jumps={has_more_jumps}",
-            level="INFO",
-            extra_data={"move": move, "player": player}
-        )
+        #log_to_json(
+            #f"Move {move} executed: is_jump={is_jump}, is_promotion={is_promotion}, has_more_jumps={has_more_jumps}",
+            #level="INFO",
+            #extra_data={"move": move, "player": player}
+        #)
         return new_board, is_promotion, has_more_jumps
     except Exception as e:
         log_to_json(

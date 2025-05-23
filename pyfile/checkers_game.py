@@ -17,7 +17,7 @@ project_root = _config_manager.get_project_root()
 log_file = os.path.join(project_root, config.get("log_file", "logs/checkers_game.log"))
 os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level")),
+    level=getattr(logging, config.get("logging_level", "INFO")),
     format='%(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
@@ -55,7 +55,7 @@ class CheckersGame:
         self.board = Board(self.settings)
         self.current_player = 1
         self.move_count = 0
-        log_to_json("Game reset", level="INFO")
+        log_to_json("Game reset", level="WARNING")
 
     def copy(self) -> 'CheckersGame':
         """Returns a deep copy of the game state."""
@@ -148,7 +148,8 @@ class CheckersGame:
         """
         try:
             from_row, from_col, to_row, to_col = move
-            new_board = make_move(self.board, move, self.current_player)
+            result = make_move(self.board, move, self.current_player)
+            new_board, is_promotion, has_more_jumps = result
             if new_board is None:
                 raise CheckersError(f"Invalid move: {move}")
 
@@ -157,13 +158,13 @@ class CheckersGame:
             is_jump = abs(to_row - from_row) == 2
 
             # Check for promotion
-            is_promotion = (self.current_player == 1 and to_row == self.board.board_size - 1 and
-                           self.board.board[to_row, to_col] == 2) or \
-                           (self.current_player == -1 and to_row == 0 and
-                            self.board.board[to_row, to_col] == -2)
+            is_promotion = (
+                (self.current_player == 1 and to_row == 0 and self.board.board[to_row, to_col] == 2) or
+                (self.current_player == -1 and to_row == self.board.board_size - 1 and self.board.board[to_row, to_col] == -2)
+            )
 
             self.current_player = -self.current_player
-            if is_jump and not is_promotion:
+            if is_jump and not is_promotion and has_more_jumps:
                 jumps = get_piece_moves(self.board, to_row, to_col, self.current_player)
                 jumps = [(to_pos, skipped) for to_pos, skipped in jumps.items() if skipped]
                 if jumps:
@@ -202,7 +203,7 @@ class CheckersGame:
         Returns:
             bool: True if the game is over.
         """
-        max_total_moves = self.config.get("max_total_moves")
+        max_total_moves = self.config.get("max_total_moves", 100)
         return not self.get_legal_moves() or self.move_count >= max_total_moves
 
     def get_reward(self) -> float:

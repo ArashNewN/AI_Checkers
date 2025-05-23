@@ -1,5 +1,3 @@
-# advanced_ai.py
-
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -11,10 +9,8 @@ import torch.optim as optim
 from .base_ai import BaseAI
 from .progress_tracker import ProgressTracker, logger
 from .rewards import RewardCalculator
-
 from pyfile.config import ConfigManager, DEFAULT_AI_PARAMS
 
-# نمونه ConfigManager برای مدیریت مرکزی تنظیمات
 _config_manager = ConfigManager()
 
 AI_METADATA = {
@@ -23,11 +19,9 @@ AI_METADATA = {
     "code": "al"
 }
 
-# تنظیم مسیرهای سیستمی
 project_dir = Path(__file__).parent
 if str(project_dir) not in sys.path:
     sys.path.append(str(project_dir))
-
 parent_dir = project_dir.parent
 if str(parent_dir) not in sys.path:
     sys.path.append(str(parent_dir))
@@ -52,46 +46,32 @@ class AdvancedNN(nn.Module):
 
         self.conv1 = nn.Conv2d(self.input_channels, conv1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding)
         self.residual_block1 = nn.Sequential(
-            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size,
-                      padding=conv1_padding),
+            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
             nn.BatchNorm2d(residual_block1_filters),
-            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size,
-                      padding=conv1_padding),
+            nn.Conv2d(residual_block1_filters, residual_block1_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
             nn.BatchNorm2d(residual_block1_filters),
         )
-        self.conv2 = nn.Conv2d(residual_block1_filters, conv2_filters, kernel_size=conv1_kernel_size,
-                               padding=conv1_padding)
+        self.conv2 = nn.Conv2d(residual_block1_filters, conv2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding)
         self.residual_block2 = nn.Sequential(
-            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size,
-                      padding=conv1_padding),
+            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
             nn.BatchNorm2d(residual_block2_filters),
-            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size,
-                      padding=conv1_padding),
+            nn.Conv2d(residual_block2_filters, residual_block2_filters, kernel_size=conv1_kernel_size, padding=conv1_padding),
             nn.ReLU(),
             nn.BatchNorm2d(residual_block2_filters),
         )
-
-        self.attention = nn.MultiheadAttention(embed_dim=self.attention_embed_dim, num_heads=attention_num_heads,
-                                               batch_first=True)
-
+        self.attention = nn.MultiheadAttention(embed_dim=self.attention_embed_dim, num_heads=attention_num_heads, batch_first=True)
         fc_input_size = residual_block2_filters * self.board_size * self.board_size
         fc_layers = []
         prev_size = fc_input_size
         for size in fc_layer_sizes:
-            fc_layers.extend([
-                nn.Linear(prev_size, size),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate)
-            ])
+            fc_layers.extend([nn.Linear(prev_size, size), nn.ReLU(), nn.Dropout(dropout_rate)])
             prev_size = size
         fc_layers.append(nn.Linear(prev_size, self.board_size * self.board_size))
         self.fc_layers = nn.Sequential(*fc_layers)
-
-        self.residual = nn.Linear(self.board_size * self.board_size * self.input_channels,
-                                  self.board_size * self.board_size)
+        self.residual = nn.Linear(self.board_size * self.board_size * self.input_channels, self.board_size * self.board_size)
 
     def forward(self, state):
         batch_size: int = state.size(0)
@@ -115,62 +95,51 @@ class AdvancedAI(BaseAI):
     metadata = AI_METADATA
 
     def __init__(self, game, model_name, ai_id, config=None):
-        # بارگذاری تنظیمات از ConfigManager
         config = self._load_config(config, ai_id)
         super().__init__(game, model_name, ai_id, settings=config)
         logger.info(f"Initialized AdvancedAI for {ai_id} with model {model_name}")
 
-        # ایجاد شبکه‌های عصبی
         self.policy_net = AdvancedNN(self.config).to(self.device)
         self.target_net = AdvancedNN(self.config).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        # تنظیم بهینه‌ساز
-        self.optimizer = optim.Adam(
-            self.policy_net.parameters(),
-            lr=self.config["training_params"]["learning_rate"]
-        )
-
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.config["training_params"]["learning_rate"])
         self.progress_tracker = ProgressTracker(ai_id)
         self.reward_calculator = RewardCalculator(game=game, ai_id=ai_id)
 
         # بارگذاری مدل در صورت وجود
-        if self.model_path.exists():
+        # noinspection PyUnresolvedReferences
+        if self.model_path.exists():  # برای ساکت کردن PyCharm
             self.policy_net.load_state_dict(torch.load(self.model_path, map_location=self.device))
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        # ذخیره تنظیمات در فایل اختصاصی (al_config.json)
         self._save_specific_config()
 
     def _save_specific_config(self):
-        """ذخیره تنظیمات در فایل اختصاصی AI (مثل al_config.json) با استفاده از ConfigManager"""
+        """ذخیره تنظیمات در فایل اختصاصی AI (مثل al_config.json)"""
+        config_path = None
         try:
             config_path = _config_manager.get_ai_specific_config_path(self.metadata['code'])
-            config_to_save = {
-                "player_1" if self.ai_id == "ai_1" else "player_2": self.config
-            }
+            config_to_save = {"player_1" if self.ai_id == "ai_1" else "player_2": self.config}
             _config_manager.save_ai_specific_config(self.metadata['code'], config_to_save)
             logger.info(f"Saved AI specific config to {config_path}")
         except Exception as e:
-            logger.error(f"Failed to save AI specific config to {config_path}: {str(e)}")
+            error_path = config_path if config_path else f"ai_config_{self.metadata['code']}"
+            logger.error(f"Failed to save AI specific config to {error_path}: {str(e)}")
 
     def _load_config(self, config, ai_id):
-        """بارگذاری و اعتبارسنجی تنظیمات از ConfigManager"""
+        # بدون تغییر، همان کد قبلی
         try:
             config_dict = config if config else _config_manager.load_ai_config()
             player_key = "player_1" if ai_id == "ai_1" else "player_2"
-
             player_config = config_dict.get("ai_configs", {}).get(player_key, {})
             if not isinstance(player_config, dict):
                 logger.warning(f"Invalid configuration format for {player_key}, using default")
                 return DEFAULT_AI_PARAMS.copy()
-
             params = player_config.get("params", {})
             if not isinstance(params, dict):
                 logger.warning(f"No valid parameters for {player_key}, using default")
                 return DEFAULT_AI_PARAMS.copy()
-
-            # پر کردن پارامترهای غایب با DEFAULT_AI_PARAMS
             required_params = ["training_params", "network_params", "advanced_nn_params"]
             for param in required_params:
                 if param not in params:
@@ -179,7 +148,6 @@ class AdvancedAI(BaseAI):
                     for key, value in DEFAULT_AI_PARAMS.get(param, {}).items():
                         if key not in params[param]:
                             params[param][key] = value
-
             required_training_params = [
                 "memory_size", "batch_size", "learning_rate", "gamma",
                 "epsilon_start", "epsilon_end", "epsilon_decay",
@@ -189,10 +157,7 @@ class AdvancedAI(BaseAI):
             for param in required_training_params:
                 if param not in params["training_params"]:
                     params["training_params"][param] = DEFAULT_AI_PARAMS["training_params"].get(param)
-
-            # تنظیم مسیر model_dir از ai_config.json
             model_dir = config_dict.get("model_dir", "models")
-
             return {
                 "model_dir": model_dir,
                 "ability_level": player_config.get("ability_level", DEFAULT_AI_PARAMS["ability_level"]),
@@ -218,7 +183,8 @@ class AdvancedAI(BaseAI):
             logger.info(f"Only one move available: {move}")
             return move
 
-        state = self.get_state(self.game.board.board)
+        # noinspection PyUnresolvedReferences
+        state = self.get_state(self.game.board.board)  # برای ساکت کردن PyCharm
         board_size = self.config["network_params"]["board_size"]
         logger.debug(f"State shape: {state.shape}")
         try:
@@ -232,8 +198,7 @@ class AdvancedAI(BaseAI):
                         logger.error(f"Invalid move format: {move}")
                         continue
                     from_row, from_col, to_row, to_col = move
-                    index = (from_row * board_size + from_col) * (board_size * board_size) + (
-                                to_row * board_size + to_col)
+                    index = (from_row * board_size + from_col) * (board_size * board_size) + (to_row * board_size + to_col)
                     logger.debug(f"Processing move {move}, calculated index: {index}")
                     if not (0 <= index < max_index):
                         logger.error(f"Invalid index {index} for move {move}")

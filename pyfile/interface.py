@@ -1,3 +1,4 @@
+#interface.py
 import pygame
 import numpy as np
 import tkinter as tk
@@ -18,11 +19,11 @@ log_file = project_root / "logs" / "interface.log"
 log_file.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
-    level=getattr(logging, config.get("logging_level", "ERROR")),
+    level=logging.WARNING,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.StreamHandler(),  # نمایش در ترمینال
-        logging.FileHandler(log_file, mode="a", encoding="utf-8")  # نوشتن در فایل
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, mode="a", encoding="utf-8")
     ]
 )
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class Button:
         self.enabled = True
         log_to_json(
             f"Button initialized: {text}",
-            level="DEBUG",
+            level="INFO",
             extra_data={"x": x, "y": y, "width": width, "height": height}
         )
 
@@ -48,11 +49,14 @@ class Button:
             text_surface = self.font.render(self.text, True, (0, 0, 0))
             text_rect = text_surface.get_rect(center=self.rect.center)
             screen.blit(text_surface, text_rect)
-            log_to_json(
-                f"Drew button: {self.text}",
-                level="DEBUG",
-                extra_data={"enabled": self.enabled, "rect": [self.rect.x, self.rect.y, self.rect.width, self.rect.height]}
-            )
+            # لاگ فقط در صورت تغییر حالت دکمه
+            if not hasattr(self, '_last_enabled') or self._last_enabled != self.enabled:
+                log_to_json(
+                    f"Drew button: {self.text}",
+                    level="INFO",
+                    extra_data={"enabled": self.enabled, "rect": [self.rect.x, self.rect.y, self.rect.width, self.rect.height]}
+                )
+                self._last_enabled = self.enabled
         except Exception as e:
             log_to_json(
                 f"Error drawing button {self.text}: {str(e)}",
@@ -63,8 +67,8 @@ class Button:
     def is_clicked(self, pos):
         clicked = self.rect.collidepoint(pos)
         log_to_json(
-            f"Button {self.text} checked for click at {pos}: {'clicked' if clicked else 'not clicked'}",
-            level="DEBUG",
+            f"Button {self.text} clicked: {'clicked' if clicked else 'not clicked'}",
+            level="INFO",  # فقط هنگام کلیک
             extra_data={"pos": list(pos)}
         )
         return clicked
@@ -297,7 +301,7 @@ class GameInterface:
                 screen.blit(removal_surface, (draw_x - radius, draw_y - radius))
                 log_to_json(
                     f"Drew removal piece at ({row}, {col})",
-                    level="DEBUG",
+                    level="INFO",
                     extra_data={"position": [row, col], "is_kinged": is_kinged}
                 )
                 return
@@ -371,11 +375,11 @@ class GameInterface:
                     pygame.draw.circle(screen, self.GRAY, (draw_x, draw_y), crown_radius)
                     pygame.draw.circle(screen, self.BLACK, (draw_x, draw_y), crown_radius, 1)
 
-            log_to_json(
-                f"Drew piece at ({row}, {col})",
-                level="DEBUG",
-                extra_data={"piece_value": piece_value, "is_kinged": is_kinged, "is_player_2": is_player_2}
-            )
+                log_to_json(
+                    f"Drew piece at ({row}, {col})",
+                    level="INFO",
+                    extra_data={"piece_value": piece_value, "is_kinged": is_kinged, "is_player_2": is_player_2}
+                )
         except Exception as e:
             log_to_json(
                 f"Error drawing piece at ({row}, {col}): {str(e)}",
@@ -531,7 +535,7 @@ class GameInterface:
             self.screen.blit(surface, (x, y))
             log_to_json(
                 f"Drew default image for {name} at ({x}, {y})",
-                level="DEBUG",
+                level="INFO",
                 extra_data={"name": name, "position": [x, y]}
             )
         except Exception as e:
@@ -587,7 +591,7 @@ class GameInterface:
             self.screen.blit(footer_text, footer_rect)
             log_to_json(
                 "Drew game interface",
-                level="DEBUG",
+                level="INFO",
                 extra_data={"board_state": self.game.board.board.tolist()}
             )
         except Exception as e:
@@ -902,7 +906,7 @@ class GameInterface:
 
             log_to_json(
                 "Drew side panel",
-                level="DEBUG",
+                level="INFO",
                 extra_data={"player_1_name": player_1_name, "player_2_name": player_2_name}
             )
         except Exception as e:

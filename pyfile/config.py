@@ -4,6 +4,8 @@ from pathlib import Path
 import logging
 import numpy as np
 import importlib
+import logging.handlers
+from collections import deque
 from typing import Dict, Union, Optional, TypedDict
 
 from .constants import LANGUAGES
@@ -18,6 +20,28 @@ DEFAULT_ABILITY_LEVELS: Dict[str, str] = {
     "7": "strong",
     "9": "very_strong"
 }
+
+def setup_module_loggers():
+    log_dir = ConfigManager().log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    modules = [
+        ("pyfile.checkers_game", "checkers_game.log"),
+        ("modules.advanced_ai", "advanced_ai.log"),
+        ("modules.rewards", "rewards.log"),
+        ("pyfile.interface", "interface.log"),
+        ("pyfile.config", "config.log"),
+    ]
+
+    for module_name, log_file in modules:
+        module_logger = logging.getLogger(module_name)
+        handler = logging.handlers.RotatingFileHandler(
+            log_dir / log_file, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8"
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        module_logger.addHandler(handler)
+        module_logger.setLevel(logging.WARNING)  # تغییر به WARNING
+        logger.debug(f"Setup logger for {module_name} to {log_file}")
 
 # Default AI parameters
 DEFAULT_AI_PARAMS = {
@@ -112,7 +136,6 @@ class AIConfig(TypedDict):
     ability_levels: Dict[str, str]
     ai_configs: Dict[str, PlayerConfig]
 
-# ConfigManager class for centralized configuration management
 class ConfigManager:
     _instance = None
 
@@ -130,25 +153,96 @@ class ConfigManager:
         self._ai_specific_config_cache = {}
         self._ai_module_cache = {}
         self.project_root = None
+        self._log_memory = deque(maxlen=1000)
+        self._log_count = {}
         self._initialized = True
 
-        # Dynamic paths for folders
         self.config_dir = self.get_project_root() / "configs"
         self.log_dir = self.get_project_root() / "logs"
         self.pth_dir = self.get_project_root() / "pth"
         self.assets_dir = self.get_project_root() / "assets"
 
-        # Create directories if they don't exist
         for directory in [self.config_dir, self.log_dir, self.pth_dir, self.assets_dir, self.config_dir / "ai"]:
             directory.mkdir(parents=True, exist_ok=True)
 
-        # Setup logging
+        # تنظیم لاگینگ اصلی
         logging.basicConfig(
-            level=logging.ERROR,
+            level=logging.INFO,  # تغییر به INFO برای کاهش لاگ‌های غیرضروری
             filename=self.log_dir / "app.log",
             encoding="utf-8",
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
+        setup_module_loggers()
+
+    def reset_log_memory(self):
+        self._log_memory.clear()
+        self._log_count.clear()
+        logger.info("Log memory reset")
+
+    @staticmethod
+    def log_to_json(message: str, level: str = "WARNING", extra_data: Optional[Dict] = None, reset: bool = False):
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL
+        }
+        numeric_level = level_map.get(level, logging.WARNING)
+        logger = logging.getLogger(__name__)
+        if not logger.isEnabledFor(numeric_level):
+            return  # لاگ‌های با سطح پایین‌تر از تنظیمات نادیده گرفته می‌شوند
+
+        def convert_to_serializable(data):
+            if isinstance(data, dict):
+                return {str(k) if isinstance(k, (tuple, list)) else k: convert_to_serializable(v) for k, v in
+                        data.items()}
+            elif isinstance(data, (list, tuple)):
+                return [convert_to_serializable(item) for item in data]
+            elif isinstance(data, (np.integer, np.floating)):
+                return data.item()
+            elif isinstance(data, bool):
+                return bool(data)
+            elif isinstance(data, Path):
+                return str(data)
+            elif hasattr(data, '__dict__'):
+                return convert_to_serializable(data.__dict__)
+            else:
+                return str(data)
+
+        config_manager = ConfigManager()
+        if reset:
+            config_manager.reset_log_memory()
+
+        log_key = f"{level}:{message}:{json.dumps(extra_data, sort_keys=True, default=str)}"
+        if log_key in config_manager._log_memory:
+            config_manager._log_count[log_key] = config_manager._log_count.get(log_key, 0) + 1
+            logger.debug(f"Skipped duplicate log: {message} (count: {config_manager._log_count[log_key]})")
+            return
+
+        config_manager._log_memory.append(log_key)
+        config_manager._log_count[log_key] = 1
+
+        try:
+            extra_data = convert_to_serializable(extra_data) if extra_data else {}
+            log_entry = {
+                "level": level,
+                "message": message,
+                "extra_data": extra_data
+            }
+
+            log_path = config_manager.config_dir / "json_logs.json"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(log_path, "a", encoding="utf-8") as f:
+                json.dump(log_entry, f, ensure_ascii=False)
+                f.write("\n")
+
+            formatted_output = f'[{level}] : "{message}", "extra_data": {json.dumps(extra_data, ensure_ascii=False)}'
+            print(formatted_output)
+            logger.log(numeric_level, formatted_output)
+        except Exception as log_error:
+            logger.error(f"Error logging to JSON: {str(log_error)}", exc_info=True)
 
     def get_project_root(self) -> Path:
         if self.project_root is None:
@@ -159,7 +253,7 @@ class ConfigManager:
                 logger.debug(f"Project root set from PROJECT_ROOT env: {self.project_root}")
                 return self.project_root
 
-            # Start from current file path
+            # Start from the current file path
             current_path = Path(__file__).resolve().parent
             max_depth = 15
             depth = 0
@@ -181,43 +275,6 @@ class ConfigManager:
             for directory in [self.project_root / "configs", self.project_root / "modules", self.project_root / "logs"]:
                 directory.mkdir(parents=True, exist_ok=True)
         return self.project_root
-
-    @staticmethod
-    def log_to_json(message: str, level: str = "ERROR", extra_data: Optional[Dict] = None):
-        def convert_to_serializable(data):
-            if isinstance(data, dict):
-                return {str(k) if isinstance(k, (tuple, list)) else k: convert_to_serializable(v) for k, v in data.items()}
-            elif isinstance(data, (np.integer, np.floating)):
-                return data.item()
-            elif isinstance(data, (list, tuple)):
-                return [convert_to_serializable(item) for item in data]
-            elif isinstance(data, Path):
-                return str(data)
-            elif isinstance(data, bool):
-                return data
-            return data
-
-        try:
-            extra_data = convert_to_serializable(extra_data) if extra_data else {}
-            log_entry = {
-                "level": level,
-                "message": message,
-                "extra_data": extra_data
-            }
-
-            formatted_output = f'[{level}] : "{message}", "extra_data": {json.dumps(extra_data, ensure_ascii=False)}'
-            print(formatted_output)  # Display output in console
-
-            log_path = Path("json_logs.json")
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(log_path, "a", encoding="utf-8") as f:
-                json.dump(log_entry, f, ensure_ascii=False)
-                f.write("\n")
-
-            logger.log(getattr(logging, level), formatted_output)
-        except Exception as log_error:
-            logger.error(f"Error logging to JSON: {str(log_error)}")
 
     def get_stats_path(self) -> Path:
         return self.config_dir / "stats.json"

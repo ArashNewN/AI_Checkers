@@ -24,7 +24,6 @@ AI_METADATA = {
 
 class BaseAI(ABC):
     def __init__(self, game, model_name: str, ai_id: str, settings: Optional[Dict] = None):
-        global config_data
         if not hasattr(game, 'copy') or not hasattr(game, 'get_legal_moves'):
             raise ValueError("Provided game object does not support required methods (copy, get_legal_moves)")
         self.game = game
@@ -51,7 +50,7 @@ class BaseAI(ABC):
         # تنظیم مسیرهای مدل با استفاده از ConfigManager
         try:
             project_root = _config_manager.get_project_root()
-            model_dir = config_data.get("model_dir", "models")
+            model_dir = self.config.get("model_dir", "models")
             pth_dir = project_root / model_dir
             pth_dir.mkdir(parents=True, exist_ok=True)
             self.model_path = pth_dir / f"{model_name}_{ai_id}.pth"

@@ -1,3 +1,4 @@
+#board.py
 import os
 import numpy as np
 import pygame
@@ -64,12 +65,12 @@ class Board:
                         level="ERROR",
                         extra_data={"piece_type": piece_type, "path": path}
                     )
-            else:
-                log_to_json(
-                    f"Image path for piece {piece_type} does not exist: {path}",
-                    level="WARNING",
-                    extra_data={"piece_type": piece_type, "path": path}
-                )
+            #else:
+                #log_to_json(
+                    #f"Image path for piece {piece_type} does not exist: {path}",
+                    #level="WARNING",
+                    #extra_data={"piece_type": piece_type, "path": path}
+                #)
 
     def create_board(self):
         """Initializes the board with pieces for both players."""
