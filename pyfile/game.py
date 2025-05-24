@@ -1,6 +1,5 @@
 #game.py
 import pygame
-import sys
 import os
 import logging
 import numpy as np
@@ -106,6 +105,7 @@ class Game:
     def __init__(self, settings: Optional[GameSettings] = None, interface=None):
         settings_dict = None
         assets_dir = None
+        self.has_ai = False  # پرچم برای بررسی وجود AI
         self.board_size = config.get("board_size", 8)
         try:
             self.config = config
@@ -211,97 +211,70 @@ class Game:
 
     def _init_ai_players(self):
         try:
-            ai_config = load_ai_config()
-            self.ai_players = {}
             game_mode = getattr(self.settings, "game_mode", "human_vs_human")
             player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
             player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
-            logger.debug(f"Game mode: {game_mode}, Player 1 AI type: {player_1_ai_type}, Player 2 AI type: {player_2_ai_type}")
+            logger.debug(
+                f"Game mode: {game_mode}, Player 1 AI type: {player_1_ai_type}, Player 2 AI type: {player_2_ai_type}")
+
+            self.ai_players = {}
+            self.has_ai = False
+            self.reward_calculator = None
+
+            # بررسی نیاز به AI
             if game_mode in ["human_vs_ai", "ai_vs_ai"] or player_1_ai_type != "none" or player_2_ai_type != "none":
+                ai_config = load_ai_config()
                 self.reward_calculator = RewardCalculator(self.checkers_game)
                 self.update_ai_players(ai_config)
+                self.has_ai = bool(self.ai_players)
+                if not self.has_ai:
+                    logger.info("No valid AI classes loaded; AI functionality disabled")
+                    _config_manager.log_to_json(
+                        "No valid AI classes loaded; AI functionality disabled",
+                        level="INFO",
+                        extra_data={"game_mode": game_mode}
+                    )
             else:
-                self.reward_calculator = None
-            logger.info(f"AI players initialized: {list(self.ai_players.keys())}")
+                logger.info("No AI required for game mode; AI functionality disabled")
+            logger.info(f"AI players initialized: {list(self.ai_players.keys())}, has_ai={self.has_ai}")
         except Exception as e:
             logger.error(f"Error initializing AI players: {e}")
             _config_manager.log_to_json(f"Error initializing AI players: {str(e)}", level="ERROR")
             self.ai_players = {}
+            self.has_ai = False
+            self.reward_calculator = None
 
-    @staticmethod
-    def _load_ai_classes(config_dict):
+    def _load_ai_classes(self, config_dict):
         ai_type_to_class = {}
         logger.debug(f"Project root: {project_root}")
         for ai_type, ai_info in config_dict.get("ai_types", {}).items():
-            class_name = ""  # تعریف پیش‌فرض
+            class_name = ai_info.get("class", "")
+            module_name = ai_info.get("module", "").split(".")[-1]
+            logger.debug(f"Processing AI type: {ai_type}, module: {module_name}, class: {class_name}")
             try:
-                module_name = ai_info.get("module", "")  # انتظار: modules.advanced_ai
-                class_name = ai_info.get("class", "")
-                logger.debug(f"Processing AI type: {ai_type}, module: {module_name}, class: {class_name}")
-                module_path_parts = module_name.split(".")
-                if len(module_path_parts) < 2 or module_path_parts[0] != "modules":
-                    logger.error(f"Invalid module name format: {module_name}, expected 'modules.<module>'")
-                    _config_manager.log_to_json(
-                        f"Invalid module name format: {module_name}",
-                        level="ERROR",
-                        extra_data={"ai_type": ai_type}
-                    )
-                    continue
-                module_file_name = module_path_parts[-1]
-                module_path = project_root / "modules" / f"{module_file_name}.py"
+                module_path = project_root / "modules" / f"{module_name}.py"
                 logger.debug(f"Checking module path: {module_path}")
                 if not module_path.exists():
                     logger.error(f"Module file {module_path} not found")
-                    _config_manager.log_to_json(
-                        f"Module file {module_path} not found",
-                        level="ERROR",
-                        extra_data={"ai_type": ai_type}
-                    )
                     continue
-                if str(project_root) not in sys.path:
-                    sys.path.append(str(project_root))
-                    logger.debug(f"Added {project_root} to sys.path")
-                logger.debug(f"Current sys.path: {sys.path}")
-                module = importlib.import_module(module_name)
-                if not hasattr(module, class_name):
-                    logger.error(f"Class '{class_name}' not found in module {module_name}")
-                    _config_manager.log_to_json(
-                        f"Class '{class_name}' not found in module {module_name}",
-                        level="ERROR",
-                        extra_data={"ai_type": ai_type}
-                    )
-                    continue
-                ai_class = getattr(module, class_name)
-                if not isinstance(ai_class, type) or not issubclass(ai_class, BaseAI) or ai_class == BaseAI:
-                    logger.error(f"{class_name} is not a valid AI class")
-                    _config_manager.log_to_json(
-                        f"{class_name} is not a valid AI class",
-                        level="ERROR",
-                        extra_data={"ai_type": ai_type}
-                    )
-                    continue
-                ai_type_to_class[ai_type] = ai_class
-                logger.info(f"Successfully mapped {ai_type} to {class_name}")
-            except ImportError as e:
-                logger.error(f"ImportError loading AI class {class_name} for type {ai_type}: {e}")
-                _config_manager.log_to_json(
-                    f"ImportError loading AI class {class_name} for type {ai_type}: {str(e)}",
-                    level="ERROR",
-                    extra_data={"ai_type": ai_type}
-                )
+                module = importlib.import_module(f"modules.{module_name}")
+                ai_class = getattr(module, class_name, None)
+                if ai_class and isinstance(ai_class, type) and issubclass(ai_class, BaseAI) and ai_class != BaseAI:
+                    ai_type_to_class[ai_type] = ai_class
+                    logger.info(f"Successfully mapped {ai_type} to {class_name}")
+                else:
+                    logger.error(f"Invalid AI class: {class_name}")
             except Exception as e:
-                logger.error(f"Unexpected error loading AI class {class_name} for type {ai_type}: {e}")
-                _config_manager.log_to_json(
-                    f"Unexpected error loading AI class {class_name} for type {ai_type}: {str(e)}",
-                    level="ERROR",
-                    extra_data={"ai_type": ai_type}
-                )
+                logger.error(f"Error loading AI class {class_name} for type {ai_type}: {e}")
         if not ai_type_to_class:
-            logger.error("No valid AI classes loaded in _load_ai_classes")
-            _config_manager.log_to_json("No valid AI classes loaded", level="ERROR")
+            logger.warning("No valid AI classes loaded")
         return ai_type_to_class
 
     def make_ai_move(self, ai_id: str) -> bool:
+        if not self.has_ai:
+            logger.debug(f"AI move skipped for {ai_id}: No AI available")
+            self.turn = not self.turn  # تغییر نوبت برای جلوگیری از گیر کردن بازی
+            return False
         move: Optional[Tuple[int, int, int, int]] = None
         valid_moves_formatted: List[Tuple[int, int, int, int]] = []
         try:
@@ -408,6 +381,9 @@ class Game:
             return {}
 
     def get_hint(self):
+        if not self.has_ai:
+            logger.debug("Hint skipped: No AI available")
+            return None
         try:
             if self.game_over or (not self.turn and not self.config.get("hint_enabled_p1")) or (
                     self.turn and not self.config.get("hint_enabled_p2")):
@@ -488,6 +464,9 @@ class Game:
             raise CheckersError(f"Failed to get valid moves: {str(e)}")
 
     def update_ai_players(self, config_dict=None):
+        if not self.has_ai:
+            logger.debug("Skipping AI players update: No AI available")
+            return
         try:
             config_dict = config_dict or load_ai_config()
             config_dict["game_settings"] = {
@@ -500,69 +479,20 @@ class Game:
             logger.debug(f"Game settings in config_dict: {config_dict['game_settings']}")
             ai_type_to_class = self._load_ai_classes(config_dict)
             if not ai_type_to_class:
-                logger.error("No valid AI classes loaded in update_ai_players")
-                _config_manager.log_to_json("No valid AI classes loaded", level="ERROR")
+                logger.info("No valid AI classes loaded in update_ai_players; AI functionality disabled")
+                _config_manager.log_to_json(
+                    "No valid AI classes loaded in update_ai_players",
+                    level="INFO",
+                    extra_data={"game_mode": getattr(self.settings, "game_mode", "human_vs_human")}
+                )
+                self.has_ai = False
+                self.ai_players = {}
                 return
-            players = []
-            game_mode = getattr(self.settings, "game_mode", "human_vs_human")
-            player_1_ai_type = getattr(self.settings, "player_1_ai_type", "none")
-            player_2_ai_type = getattr(self.settings, "player_2_ai_type", "none")
-            logger.debug(
-                f"Game mode: {game_mode}, Player 1 AI type: {player_1_ai_type}, Player 2 AI type: {player_2_ai_type}")
-            if game_mode == "ai_vs_ai":
-                players = ["player_1", "player_2"]
-            elif game_mode == "human_vs_ai":
-                players = ["player_2"]
-            elif player_1_ai_type != "none":
-                players = ["player_1"]
-            elif player_2_ai_type != "none":
-                players = ["player_2"]
-            logger.debug(f"Players to initialize: {players}")
-            self.ai_players = {}
-            for player in players:
-                ai_id = "ai_1" if player == "player_1" else "ai_2"
-                ai_settings = config_dict["ai_configs"].get(player, {})
-                ai_type = ai_settings.get("ai_type", player_1_ai_type if player == "player_1" else player_2_ai_type)
-                model_name = ai_settings.get("ai_code", ai_type)
-                # افزودن مقادیر پیش‌فرض برای پارامترهای مورد نیاز
-                ai_settings.setdefault("ability_level", "default")
-                ai_settings.setdefault("training_params", {})
-                logger.debug(f"Initializing AI for {player}: ai_id={ai_id}, ai_type={ai_type}, model_name={model_name}")
-                if ai_type and ai_type != "none":
-                    ai_class = ai_type_to_class.get(ai_type)
-                    if ai_class:
-                        try:
-                            self.ai_players[ai_id] = ai_class(
-                                game=self.checkers_game,
-                                model_name=model_name,
-                                ai_id=ai_id,
-                                training_params=ai_settings.get("training_params", {}),
-                                ability_level=ai_settings.get("ability_level", "default")
-                            )
-                            logger.info(f"Loaded AI: {ai_type} for {player} (ID: {ai_id})")
-                            _config_manager.log_to_json(
-                                f"Loaded AI: {ai_type} for {player}",
-                                level="INFO",
-                                extra_data={"ai_id": ai_id, "ai_type": ai_type}
-                            )
-                        except Exception as e:
-                            logger.error(f"Error loading AI {ai_type} for {ai_id}: {e}")
-                            _config_manager.log_to_json(
-                                f"Error loading AI {ai_type} for {ai_id}: {str(e)}",
-                                level="ERROR",
-                                extra_data={"ai_id": ai_id, "ai_type": ai_type}
-                            )
-                    else:
-                        logger.error(f"No AI class found for type: {ai_type}")
-                        _config_manager.log_to_json(
-                            f"No AI class found for type: {ai_type}",
-                            level="ERROR",
-                            extra_data={"ai_type": ai_type}
-                        )
         except Exception as e:
             logger.error(f"Error updating AI players: {e}")
             _config_manager.log_to_json(f"Error updating AI players: {str(e)}", level="ERROR")
             self.ai_players = {}
+            self.has_ai = False
 
     def select(self, row, col):
         try:

@@ -119,9 +119,11 @@ class BaseWindow:
             logger.error(safe_message)
             _config_manager.log_to_json(safe_message, level="ERROR")
 
+
 class SettingsWindow(BaseWindow):
     def __init__(self, interface, root=None):
         super().__init__(interface, root)
+        self.has_ai = False  # پرچم برای بررسی وجود AI
         self.temp_settings = GameSettings()
         self.copy_current_settings()
         self.ai_types = ["none"]
@@ -191,6 +193,33 @@ class SettingsWindow(BaseWindow):
         self.player2_mobility_bonus_var = tk.DoubleVar(value=0.2)
         self.player2_safety_penalty_var = tk.DoubleVar(value=-0.1)
 
+    def create_widgets(self):
+        self.create_window(LANGUAGES[self.settings.language]["settings"],
+                          self.config.get("settings_window_width", 500),
+                          self.config.get("settings_window_height", 750))
+        notebook = ttk.Notebook(self.window)
+        notebook.pack(fill="both", expand=True)
+
+        self.setup_game_tab(notebook)
+        self.setup_design_tab(notebook)
+        self.setup_ai_tab(notebook)
+        self.setup_player_tab(notebook)
+        self.setup_advanced_tab(notebook)
+
+        button_frame = ttk.Frame(self.window, padding=10)
+        button_frame.pack(fill="x")
+
+        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
+        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["save_changes"],
+                  command=self.save, style="Custom.TButton").pack(side=side, padx=5)
+        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["close"],
+                  command=self.close, style="Custom.TButton").pack(side=side, padx=5)
+        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["reset_settings"],
+                  command=self.reset, style="Custom.TButton").pack(side=side, padx=5)
+
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.update_ai_dropdowns()
+
     def initialize_ai_modules(self):
         try:
             from modules.base_ai import BaseAI
@@ -206,7 +235,7 @@ class SettingsWindow(BaseWindow):
                     if module_name in ["__init__", "windows", "base_ai", "self_play", "train", "train_advanced"]:
                         logger.debug(f"Skipping file: {module_name}")
                         continue
-                    module_path = None  # مقدار پیش‌فرض
+                    module_path = None
                     try:
                         module_path = f"{ai_dir.replace('/', '.')}.{module_name}"
                         module = importlib.import_module(module_path)
@@ -248,55 +277,48 @@ class SettingsWindow(BaseWindow):
                         "player_2": DEFAULT_AI_PARAMS.copy()
                     })
             _config_manager.save_ai_config(ai_config)
-            self.ai_types = ["none"] + list(ai_config["ai_types"].keys())
-            logger.debug(f"Initialized ai_types: {self.ai_types}")
-            _config_manager.log_to_json("AI modules initialized", level="INFO", extra_data={"ai_types": self.ai_types})
+            self.ai_types = ["none"] + list(ai_config.get("ai_types", {}).keys())
+            self.has_ai = bool(ai_modules)  # تنظیم پرچم has_ai
+            logger.debug(f"Initialized ai_types: {self.ai_types}, has_ai={self.has_ai}")
+            _config_manager.log_to_json(
+                f"AI modules initialized, has_ai={self.has_ai}",
+                level="INFO",
+                extra_data={"ai_types": self.ai_types}
+            )
         except Exception as e:
             logger.error(f"Error in initialize_ai_modules: {str(e)}")
             self.ai_types = ["none"]
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
-            _config_manager.log_to_json(f"Error in initialize_ai_modules: {str(e)}", level="ERROR")
-
-    def create_widgets(self):
-        self.create_window(LANGUAGES[self.settings.language]["settings"],
-                          self.config.get("settings_window_width", 500),
-                          self.config.get("settings_window_height", 750))
-        notebook = ttk.Notebook(self.window)
-        notebook.pack(fill="both", expand=True)
-
-        self.setup_game_tab(notebook)
-        self.setup_design_tab(notebook)
-        self.setup_ai_tab(notebook)
-        self.setup_player_tab(notebook)
-        self.setup_advanced_tab(notebook)
-
-        button_frame = ttk.Frame(self.window, padding=10)
-        button_frame.pack(fill="x")
-
-        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
-        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["save_changes"],
-                  command=self.save, style="Custom.TButton").pack(side=side, padx=5)
-        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["close"],
-                  command=self.close, style="Custom.TButton").pack(side=side, padx=5)
-        ttk.Button(button_frame, text=LANGUAGES[self.settings.language]["reset_settings"],
-                  command=self.reset, style="Custom.TButton").pack(side=side, padx=5)
-
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.update_ai_dropdowns()
+            self.has_ai = False
+            _config_manager.log_to_json(
+                f"Error in initialize_ai_modules: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"ai_types": self.ai_types}
+            )
 
     def load_ai_config(self):
+        if not self.has_ai:
+            logger.debug("Skipping load_ai_config: No AI available")
+            self.ai_types = ["none"]
+            self.temp_settings.ai_configs = {"ai_types": {}, "ai_configs": {"player_1": {}, "player_2": {}}}
+            return
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
                 raise ValueError("Invalid ai_config format, expected a dictionary")
             self.ai_types = ["none"] + list(ai_config.get("ai_types", {}).keys())
             self.temp_settings.ai_configs = ai_config.get("ai_configs", _config_manager.load_ai_config())
+            logger.debug(f"Loaded ai_types: {self.ai_types}")
         except Exception as e:
             logger.error(f"Error loading ai_config: {e}, using default")
             self.ai_types = ["none"]
-            self.temp_settings.ai_configs = _config_manager.load_ai_config()
-            _config_manager.log_to_json(f"Error loading ai_config: {str(e)}", level="ERROR")
-        logger.debug(f"Loaded ai_types: {self.ai_types}")
+            self.temp_settings.ai_configs = {"ai_types": {}, "ai_configs": {"player_1": {}, "player_2": {}}}
+            self.has_ai = False
+            _config_manager.log_to_json(
+                f"Error loading ai_config: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"ai_types": self.ai_types}
+            )
 
     @staticmethod
     def check_ai_module(ai_type: str) -> bool:
@@ -312,6 +334,27 @@ class SettingsWindow(BaseWindow):
             return False
 
     def update_ai_dropdowns(self):
+        if not self.has_ai:
+            logger.debug("Skipping update_ai_dropdowns: No AI available")
+            self.player_1_ai_type_var.set("none")
+            self.player_2_ai_type_var.set("none")
+            self.player_1_ai_menu['menu'].delete(0, 'end')
+            self.player_2_ai_menu['menu'].delete(0, 'end')
+            self.player_1_ai_menu['menu'].add_command(
+                label="none",
+                command=lambda: [
+                    self.player_1_ai_type_var.set("none"),
+                    self._update_player_ai_config("player_1", "none")
+                ]
+            )
+            self.player_2_ai_menu['menu'].add_command(
+                label="none",
+                command=lambda: [
+                    self.player_2_ai_type_var.set("none"),
+                    self._update_player_ai_config("player_2", "none")
+                ]
+            )
+            return
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
@@ -346,9 +389,22 @@ class SettingsWindow(BaseWindow):
                 logger.info(f"Reset player_2 AI to 'none' (was {self.player_2_ai_type_var.get()})")
         except Exception as e:
             logger.error(f"Error updating AI dropdowns: {e}")
-            _config_manager.log_to_json(f"Error updating AI dropdowns: {str(e)}", level="ERROR")
+            self.has_ai = False
+            self.ai_types = ["none"]
+            _config_manager.log_to_json(
+                f"Error updating AI dropdowns: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"ai_types": self.ai_types}
+            )
 
     def _update_player_ai_config(self, player: str, ai_type: str):
+        if not self.has_ai and ai_type != "none":
+            logger.debug(f"Skipping _update_player_ai_config for {player}: No AI available")
+            self.temp_settings.ai_configs[player]["ai_type"] = "none"
+            self.temp_settings.ai_configs[player]["ai_code"] = None
+            self.temp_settings.ai_configs[player]["params"] = {}
+            self.temp_settings.ai_configs[player]["ability_level"] = 5
+            return
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
@@ -358,7 +414,8 @@ class SettingsWindow(BaseWindow):
             if ai_type != "none" and ai_type not in ai_config["ai_types"]:
                 logger.error(f"AI type '{ai_type}' not found in ai_config['ai_types']")
                 self.log_error(f"ماژول AI {ai_type} برای {player} پیدا نشد")
-                self.player_1_ai_type_var.set("none") if player == "player_1" else self.player_2_ai_type_var.set("none")
+                self.player_1_ai_type_var.set("none") if player == "player_1" else self.player_2_ai_type_var.set(
+                    "none")
                 ai_type = "none"
 
             self.temp_settings.ai_configs[player]["ai_type"] = ai_type
@@ -369,7 +426,8 @@ class SettingsWindow(BaseWindow):
                 if not isinstance(ai_specific_config, dict):
                     logger.warning(f"Invalid ai_specific_config for {code}, using default")
                     ai_specific_config = {player: DEFAULT_AI_PARAMS.copy()}
-                self.temp_settings.ai_configs[player]["params"] = ai_specific_config.get(player, DEFAULT_AI_PARAMS.copy())
+                self.temp_settings.ai_configs[player]["params"] = ai_specific_config.get(player,
+                                                                                         DEFAULT_AI_PARAMS.copy())
                 self.temp_settings.ai_configs[player]["ability_level"] = 5
             else:
                 self.temp_settings.ai_configs[player]["ai_code"] = None
@@ -377,10 +435,20 @@ class SettingsWindow(BaseWindow):
                 self.temp_settings.ai_configs[player]["ability_level"] = 5
 
             logger.debug(f"Updated {player} temp_settings: {self.temp_settings.ai_configs[player]}")
-            _config_manager.log_to_json(f"Updated AI config for {player}", level="INFO", extra_data={"ai_type": ai_type})
+            _config_manager.log_to_json(f"Updated AI config for {player}", level="INFO",
+                                        extra_data={"ai_type": ai_type})
         except Exception as e:
             logger.error(f"Error updating player AI config for {player}: {e}")
-            _config_manager.log_to_json(f"Error updating player AI config for {player}: {str(e)}", level="ERROR")
+            self.has_ai = False
+            self.temp_settings.ai_configs[player]["ai_type"] = "none"
+            self.temp_settings.ai_configs[player]["ai_code"] = None
+            self.temp_settings.ai_configs[player]["params"] = {}
+            self.temp_settings.ai_configs[player]["ability_level"] = 5
+            _config_manager.log_to_json(
+                f"Error updating player AI config for {player}: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"ai_type": ai_type}
+            )
 
     def setup_ai_tab(self, notebook):
         ai_frame = ttk.Frame(notebook, padding="10")
@@ -392,22 +460,24 @@ class SettingsWindow(BaseWindow):
         self.ai_list.heading("Description", text=LANGUAGES[self.settings.language]["description"])
         self.ai_list.pack(fill="both", expand=False, pady=5)
 
-        ai_players_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_players"], padding=10)
+        ai_players_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_players"],
+                                          padding=10)
         ai_players_frame.pack(fill="x", pady=5)
 
         player_1_container = ttk.Frame(ai_players_frame)
         player_1_container.pack(fill="x", pady=2)
-        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["player_1_ai"]).pack(side="left", padx=5)
+        ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["player_1_ai"]).pack(side="left",
+                                                                                                  padx=5)
         player_1_ai_type = self.temp_settings.ai_configs.get("player_1", {}).get("ai_type", "none")
         if player_1_ai_type not in self.ai_types:
             player_1_ai_type = "none"
         self.player_1_ai_type_var.set(player_1_ai_type)
         self.player_1_ai_menu = ttk.OptionMenu(player_1_container, self.player_1_ai_type_var,
-                                              player_1_ai_type, *self.ai_types)
+                                               player_1_ai_type, *self.ai_types)
         self.player_1_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_1_ai_menu["menu"].config(font=("Arial", 10))
         self.player_1_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_1",
-                                                                                        self.player_1_ai_type_var.get()))
+                                                                                         self.player_1_ai_type_var.get()))
 
         ttk.Label(player_1_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
         ability_mapping = {
@@ -427,24 +497,27 @@ class SettingsWindow(BaseWindow):
             LANGUAGES[self.settings.language]["medium"],
             LANGUAGES[self.settings.language]["strong"],
             LANGUAGES[self.settings.language]["very_strong"],
-            command=lambda _: self.update_ability_levels("player_1")
+            command=lambda _: self.update_ability_levels("player_1") if self.has_ai else None
         )
         self.player_1_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_1_ability_menu["menu"].config(font=("Arial", 10))
+        if not self.has_ai:
+            self.player_1_ability_menu.config(state="disabled")
 
         player_2_container = ttk.Frame(ai_players_frame)
         player_2_container.pack(fill="x", pady=2)
-        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["player_2_ai"]).pack(side="left", padx=5)
+        ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["player_2_ai"]).pack(side="left",
+                                                                                                  padx=5)
         player_2_ai_type = self.temp_settings.ai_configs.get("player_2", {}).get("ai_type", "none")
         if player_2_ai_type not in self.ai_types:
             player_2_ai_type = "none"
         self.player_2_ai_type_var.set(player_2_ai_type)
         self.player_2_ai_menu = ttk.OptionMenu(player_2_container, self.player_2_ai_type_var,
-                                              player_2_ai_type, *self.ai_types)
+                                               player_2_ai_type, *self.ai_types)
         self.player_2_ai_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_2_ai_menu["menu"].config(font=("Arial", 10))
         self.player_2_ai_type_var.trace("w", lambda *args: self._update_player_ai_config("player_2",
-                                                                                        self.player_2_ai_type_var.get()))
+                                                                                         self.player_2_ai_type_var.get()))
 
         ttk.Label(player_2_container, text=LANGUAGES[self.settings.language]["ability"]).pack(side="left", padx=5)
         player_2_ability = self.temp_settings.ai_configs.get("player_2", {}).get("ability_level", 5)
@@ -457,21 +530,30 @@ class SettingsWindow(BaseWindow):
             LANGUAGES[self.settings.language]["medium"],
             LANGUAGES[self.settings.language]["strong"],
             LANGUAGES[self.settings.language]["very_strong"],
-            command=lambda _: self.update_ability_levels("player_2")
+            command=lambda _: self.update_ability_levels("player_2") if self.has_ai else None
         )
         self.player_2_ability_menu.pack(side="left", fill="x", expand=True, padx=5)
         self.player_2_ability_menu["menu"].config(font=("Arial", 10))
+        if not self.has_ai:
+            self.player_2_ability_menu.config(state="disabled")
 
         pause_frame = ttk.LabelFrame(ai_frame, text=LANGUAGES[self.settings.language]["ai_pause_time"], padding=10)
         pause_frame.pack(fill="x", pady=5)
         ttk.Label(pause_frame, text=LANGUAGES[self.settings.language]["ai_pause_time_ms"]).pack(anchor="w")
-        self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time", self.ai_pause_var.get()))
-        ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10).pack(anchor="w", pady=5)
+        self.ai_pause_var.trace("w", lambda *args: self.update_temp_settings("ai_pause_time",
+                                                                             self.ai_pause_var.get()) if self.has_ai else None)
+        pause_entry = ttk.Entry(pause_frame, textvariable=self.ai_pause_var, width=10)
+        pause_entry.pack(anchor="w", pady=5)
+        if not self.has_ai:
+            pause_entry.config(state="disabled")
 
         self.update_ai_list()
 
     def update_ai_list(self):
         self.ai_list.delete(*self.ai_list.get_children())
+        if not self.has_ai:
+            logger.debug("Skipping update_ai_list: No AI available")
+            return
         try:
             ai_config = _config_manager.load_ai_config()
             if not isinstance(ai_config, dict):
@@ -482,7 +564,66 @@ class SettingsWindow(BaseWindow):
                 self.ai_list.insert("", "end", values=(ai_type, code, description))
         except Exception as e:
             logger.error(f"Error updating ai_list: {e}")
-            _config_manager.log_to_json(f"Error updating ai_list: {str(e)}", level="ERROR")
+            self.has_ai = False
+            _config_manager.log_to_json(
+                f"Error updating ai_list: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"ai_types": self.ai_types}
+            )
+
+    def update_ability_levels(self, player: str):
+        if not self.has_ai:
+            logger.debug(f"Skipping update_ability_levels for {player}: No AI available")
+            return
+        ability_levels = {
+            LANGUAGES[self.settings.language]["very_weak"]: 1,
+            LANGUAGES[self.settings.language]["weak"]: 3,
+            LANGUAGES[self.settings.language]["medium"]: 5,
+            LANGUAGES[self.settings.language]["strong"]: 7,
+            LANGUAGES[self.settings.language]["very_strong"]: 9
+        }
+        try:
+            if player == "player_1":
+                selected_level = self.player_1_ability_var.get()
+                self.temp_settings.ai_configs["player_1"]["ability_level"] = ability_levels.get(selected_level, 5)
+            elif player == "player_2":
+                selected_level = self.player_2_ability_var.get()
+                self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
+            _config_manager.log_to_json(f"Updated ability level for {player}", level="INFO",
+                                        extra_data={"level": selected_level})
+        except Exception as e:
+            logger.error(f"Error updating ability levels for {player}: {e}")
+            self.has_ai = False
+            _config_manager.log_to_json(
+                f"Error updating ability levels for {player}: {str(e)}, AI functionality disabled",
+                level="ERROR",
+                extra_data={"player": player}
+            )
+
+    def toggle_ai_vs_ai_options(self):
+        if not self.has_ai:
+            logger.debug("Skipping toggle_ai_vs_ai_options: No AI available")
+            self.repeat_once_rb.config(state="disabled")
+            self.repeat_until_rb.config(state="disabled")
+            self.repeat_hands_frame.pack_forget()
+            return
+        if self.play_with_var.get() == "ai_vs_ai":
+            self.repeat_once_rb.config(state="normal")
+            self.repeat_until_rb.config(state="normal")
+        else:
+            self.repeat_once_rb.config(state="disabled")
+            self.repeat_until_rb.config(state="disabled")
+            self.repeat_hands_frame.pack_forget()
+
+    def toggle_repeat_options(self):
+        if not self.has_ai:
+            logger.debug("Skipping toggle_repeat_options: No AI available")
+            self.repeat_hands_frame.pack_forget()
+            return
+        if self.ai_vs_ai_var.get() == "repeat_game" and self.play_with_var.get() == "ai_vs_ai":
+            self.repeat_hands_frame.pack(side="left", padx=5)
+        else:
+            self.repeat_hands_frame.pack_forget()
 
     def copy_current_settings(self):
         try:
@@ -504,26 +645,6 @@ class SettingsWindow(BaseWindow):
             logger.error(f"Error copying current settings: {e}")
             self.temp_settings.ai_configs = _config_manager.load_ai_config()
             _config_manager.log_to_json(f"Error copying current settings: {str(e)}", level="ERROR")
-
-    def update_ability_levels(self, player: str):
-        ability_levels = {
-            LANGUAGES[self.settings.language]["very_weak"]: 1,
-            LANGUAGES[self.settings.language]["weak"]: 3,
-            LANGUAGES[self.settings.language]["medium"]: 5,
-            LANGUAGES[self.settings.language]["strong"]: 7,
-            LANGUAGES[self.settings.language]["very_strong"]: 9
-        }
-        try:
-            if player == "player_1":
-                selected_level = self.player_1_ability_var.get()
-                self.temp_settings.ai_configs["player_1"]["ability_level"] = ability_levels.get(selected_level, 5)
-            elif player == "player_2":
-                selected_level = self.player_2_ability_var.get()
-                self.temp_settings.ai_configs["player_2"]["ability_level"] = ability_levels.get(selected_level, 5)
-            _config_manager.log_to_json(f"Updated ability level for {player}", level="INFO", extra_data={"level": selected_level})
-        except Exception as e:
-            logger.error(f"Error updating ability levels for {player}: {e}")
-            _config_manager.log_to_json(f"Error updating ability levels for {player}: {str(e)}", level="ERROR")
 
     def update_temp_settings(self, key: str, value):
         try:
@@ -672,6 +793,45 @@ class SettingsWindow(BaseWindow):
         if self.temp_settings.use_timer:
             self.timer_duration_frame.pack(side="left", padx=5)
 
+    def setup_player_tab(self, notebook):
+        player_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(player_frame, text=LANGUAGES[self.settings.language]["player_tab"])
+
+        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
+        anchor = "e" if side == "left" else "w"
+
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5,
+                                                                                             pady=5, sticky=anchor)
+        ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5,
+                                                                                   sticky="w")
+        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
+                  command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5,
+                                                                                              pady=5, sticky="w")
+
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5,
+                                                                                             pady=5, sticky=anchor)
+        ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5,
+                                                                                   sticky="w")
+        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
+                  command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
+                                                                                              pady=5, sticky="w")
+
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
+                                                                                        pady=5, sticky=anchor)
+        ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
+                                                                              sticky="w")
+        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
+                  command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
+                                                                                         pady=5, sticky="w")
+
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
+                                                                                        pady=5, sticky=anchor)
+        ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
+                                                                              sticky="w")
+        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
+                  command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
+                                                                                         pady=5, sticky="w")
+
     def setup_design_tab(self, notebook):
         design_frame = ttk.Frame(notebook, padding="10")
         notebook.add(design_frame, text=LANGUAGES[self.settings.language]["design_tab"])
@@ -751,45 +911,6 @@ class SettingsWindow(BaseWindow):
                       command=lambda p=piece, v=var: self.upload_image(p, v)).pack(side="left", padx=5)
             self.entries[piece] = var
 
-    def setup_player_tab(self, notebook):
-        player_frame = ttk.Frame(notebook, padding="10")
-        notebook.add(player_frame, text=LANGUAGES[self.settings.language]["player_tab"])
-
-        side: Literal["left", "right"] = "right" if self.settings.language == "fa" else "left"
-        anchor = "e" if side == "left" else "w"
-
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_1_name"]).grid(row=0, column=0, padx=5,
-                                                                                             pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.player_1_name_var, width=15).grid(row=0, column=1, padx=5, pady=5,
-                                                                                   sticky="w")
-        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("player_1"), style="Custom.TButton").grid(row=0, column=2, padx=5,
-                                                                                              pady=5, sticky="w")
-
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["player_2_name"]).grid(row=1, column=0, padx=5,
-                                                                                             pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.player_2_name_var, width=15).grid(row=1, column=1, padx=5, pady=5,
-                                                                                   sticky="w")
-        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
-                                                                                              pady=5, sticky="w")
-
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
-                                                                                        pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
-                                                                              sticky="w")
-        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
-                                                                                         pady=5, sticky="w")
-
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
-                                                                                        pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
-                                                                              sticky="w")
-        ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
-                                                                                         pady=5, sticky="w")
-
     def setup_advanced_tab(self, notebook):
         advanced_frame = ttk.Frame(notebook, padding="10")
         notebook.add(advanced_frame, text=LANGUAGES[self.settings.language]["advanced_settings_tab"])
@@ -853,21 +974,6 @@ class SettingsWindow(BaseWindow):
         except Exception as e:
             self.log_error(f"خطا در ذخیره تنظیمات پیشرفته: {str(e)}")
             _config_manager.log_to_json(f"Error saving advanced settings: {str(e)}", level="ERROR")
-
-    def toggle_ai_vs_ai_options(self):
-        if self.play_with_var.get() == "ai_vs_ai":
-            self.repeat_once_rb.config(state="normal")
-            self.repeat_until_rb.config(state="normal")
-        else:
-            self.repeat_once_rb.config(state="disabled")
-            self.repeat_until_rb.config(state="disabled")
-            self.repeat_hands_frame.pack_forget()
-
-    def toggle_repeat_options(self):
-        if self.ai_vs_ai_var.get() == "repeat_game" and self.play_with_var.get() == "ai_vs_ai":
-            self.repeat_hands_frame.pack(side="left", padx=5)
-        else:
-            self.repeat_hands_frame.pack_forget()
 
     def toggle_timer(self):
         if self.timer_var.get() == "with_timer":
@@ -1168,6 +1274,47 @@ class SettingsWindow(BaseWindow):
         self.toggle_timer()
         self.update_ai_dropdowns()
 
+
+class HelpWindow(BaseWindow):
+    def create_widgets(self):
+        self.create_window(
+            LANGUAGES[self.settings.language]["help"],
+            self.config.get("help_window_width", 300),
+            self.config.get("help_window_height", 200)
+        )
+        ttk.Label(
+            self.window,
+            text=LANGUAGES[self.settings.language]["help_content"],
+            wraplength=self.config.get("help_window_width", 300) - 20
+        ).pack(padx=10, pady=10)
+        ttk.Button(
+            self.window,
+            text=LANGUAGES[self.settings.language]["close"],
+            command=self.close,
+            style="Custom.TButton"
+        ).pack(pady=10)
+
+
+class AboutWindow(BaseWindow):
+    def create_widgets(self):
+        self.create_window(
+            LANGUAGES[self.settings.language]["about"],
+            self.config.get("about_window_width", 300),
+            self.config.get("about_window_height", 200)
+        )
+        ttk.Label(
+            self.window,
+            text=LANGUAGES[self.settings.language]["about_content"],
+            wraplength=self.config.get("about_window_width", 300) - 20
+        ).pack(padx=10, pady=10)
+        ttk.Button(
+            self.window,
+            text=LANGUAGES[self.settings.language]["close"],
+            command=self.close,
+            style="Custom.TButton"
+        ).pack(pady=10)
+
+
 class AIProgressWindow(BaseWindow):
     def __init__(self, interface, root=None):
         super().__init__(interface, root)
@@ -1291,43 +1438,6 @@ class AIProgressWindow(BaseWindow):
             logger.error(f"Failed to load progress file {progress_file_path}: {str(e)}")
             return {"Error": LANGUAGES[self.settings.language]["model_load_error"].format(error=str(e))}
 
-class HelpWindow(BaseWindow):
-    def create_widgets(self):
-        self.create_window(
-            LANGUAGES[self.settings.language]["help"],
-            self.config.get("help_window_width", 300),
-            self.config.get("help_window_height", 200)
-        )
-        ttk.Label(
-            self.window,
-            text=LANGUAGES[self.settings.language]["help_content"],
-            wraplength=self.config.get("help_window_width", 300) - 20
-        ).pack(padx=10, pady=10)
-        ttk.Button(
-            self.window,
-            text=LANGUAGES[self.settings.language]["close"],
-            command=self.close,
-            style="Custom.TButton"
-        ).pack(pady=10)
-
-class AboutWindow(BaseWindow):
-    def create_widgets(self):
-        self.create_window(
-            LANGUAGES[self.settings.language]["about"],
-            self.config.get("about_window_width", 300),
-            self.config.get("about_window_height", 200)
-        )
-        ttk.Label(
-            self.window,
-            text=LANGUAGES[self.settings.language]["about_content"],
-            wraplength=self.config.get("about_window_width", 300) - 20
-        ).pack(padx=10, pady=10)
-        ttk.Button(
-            self.window,
-            text=LANGUAGES[self.settings.language]["close"],
-            command=self.close,
-            style="Custom.TButton"
-        ).pack(pady=10)
 
 class AdvancedConfigWindow(tk.Toplevel):
     def __init__(self, parent, settings, temp_settings, language):

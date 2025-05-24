@@ -1,4 +1,3 @@
-#checkers_core.py
 from typing import Dict, List, Optional, Tuple
 
 from .board import Board

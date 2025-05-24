@@ -172,51 +172,6 @@ class AdvancedAI(BaseAI):
             logger.error(f"Error loading config for {ai_id}: {str(e)}, using default")
             return DEFAULT_AI_PARAMS.copy()
 
-    def act(self, valid_moves: List[Tuple[int, int, int, int]]) -> Optional[Tuple[int, int, int, int]]:
-        logger.info("Executing AdvancedAI.act (version 2025-05-21)")
-        logger.debug(f"Valid moves: {valid_moves}")
-        if not valid_moves:
-            logger.warning("No valid moves available")
-            return None
-        if len(valid_moves) == 1:
-            move = valid_moves[0]
-            logger.info(f"Only one move available: {move}")
-            return move
-
-        # noinspection PyUnresolvedReferences
-        state = self.get_state(self.game.board.board)  # برای ساکت کردن PyCharm
-        board_size = self.config["network_params"]["board_size"]
-        logger.debug(f"State shape: {state.shape}")
-        try:
-            with torch.no_grad():
-                q_values = self.policy_net(state)
-                logger.debug(f"Q-values shape: {q_values.shape}")
-                valid_q_values = {}
-                max_index = board_size * board_size * board_size * board_size
-                for move in valid_moves:
-                    if not isinstance(move, tuple) or len(move) != 4:
-                        logger.error(f"Invalid move format: {move}")
-                        continue
-                    from_row, from_col, to_row, to_col = move
-                    index = (from_row * board_size + from_col) * (board_size * board_size) + (to_row * board_size + to_col)
-                    logger.debug(f"Processing move {move}, calculated index: {index}")
-                    if not (0 <= index < max_index):
-                        logger.error(f"Invalid index {index} for move {move}")
-                        continue
-                    try:
-                        q_value = q_values[0, index].item()
-                        valid_q_values[move] = q_value
-                    except IndexError as e:
-                        logger.error(f"Index error for move {move}: {e}")
-                        continue
-                logger.debug(f"Valid Q-values: {valid_q_values}")
-                if valid_q_values:
-                    best_move = max(valid_q_values.items(), key=lambda x: x[1])[0]
-                    logger.info(f"Best move selected: {best_move}")
-                    return best_move
-                logger.warning("No valid Q-values computed, selecting first valid move")
-                return valid_moves[0]
-        except Exception as e:
-            logger.error(f"Error in act: {str(e)}")
-            logger.info("Selecting first valid move as fallback")
-            return valid_moves[0]
+    def act(self, valid_moves: list) -> tuple:
+        # برای تست، اولین حرکت معتبر رو انتخاب کن
+        return valid_moves[0] if valid_moves else None
