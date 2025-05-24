@@ -207,12 +207,12 @@ class GameInterface:
             player_1_image_path = (
                 self.settings.player_1_image
                 if self.settings.game_mode in ["human_vs_human", "human_vs_ai"]
-                else self.settings.al1_image
+                else self.settings.ai_1_image
             )
             player_2_image_path = (
                 self.settings.player_2_image
                 if self.settings.game_mode == "human_vs_human"
-                else self.settings.al2_image
+                else self.settings.ai_2_image
             )
             # ادامه کد همانند بالا...
         except Exception as e:
@@ -644,16 +644,15 @@ class GameInterface:
             y += int(70 * scale)
 
             # نام بازیکنان
-            player_1_name = (
-                self.settings.player_1_name
-                if self.settings.game_mode in ["human_vs_human", "human_vs_ai"]
-                else self.settings.al1_name
-            )
-            player_2_name = (
-                self.settings.player_2_name
-                if self.settings.game_mode == "human_vs_human"
-                else self.settings.al2_name
-            )
+            player_1_name = self.settings.player_1_name
+            player_2_name = self.settings.player_2_name
+
+            # برای حالت‌های شامل AI، می‌تونیم نام پیش‌فرض یا بر اساس ai_type تنظیم کنیم
+            if self.settings.game_mode == "human_vs_ai":
+                player_2_name = self.settings.player_2_name or f"AI ({self.settings.player_2_ai_type or 'AI'})"
+            elif self.settings.game_mode == "ai_vs_ai":
+                player_1_name = self.settings.player_1_name or f"AI ({self.settings.player_1_ai_type or 'AI'})"
+                player_2_name = self.settings.player_2_name or f"AI ({self.settings.player_2_ai_type or 'AI'})"
 
             # تصاویر بازیکنان
             scaled_image_size = int(self.PLAYER_IMAGE_SIZE * scale)

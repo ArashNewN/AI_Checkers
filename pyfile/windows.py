@@ -133,8 +133,8 @@ class SettingsWindow(BaseWindow):
         self.ai_pause_var = tk.IntVar(value=self.temp_settings.ai_pause_time)
         self.ai_vs_ai_subframe = None
         self.ai_vs_ai_var = tk.StringVar(value=self.temp_settings.ai_vs_ai_mode)
-        self.al1_name_var = tk.StringVar(value=self.temp_settings.al1_name)
-        self.al2_name_var = tk.StringVar(value=self.temp_settings.al2_name)
+        self.ai_1_name_var = tk.StringVar(value=self.temp_settings.ai_1_name)
+        self.ai_2_name_var = tk.StringVar(value=self.temp_settings.ai_2_name)
         self.b1_color_button = None
         self.b2_color_button = None
         self.board_color_1_var = tk.StringVar(value=rgb_to_hex(self.temp_settings.board_color_1))
@@ -816,20 +816,20 @@ class SettingsWindow(BaseWindow):
                   command=lambda: self.upload_image("player_2"), style="Custom.TButton").grid(row=1, column=2, padx=5,
                                                                                               pady=5, sticky="w")
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al1_name"]).grid(row=2, column=0, padx=5,
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["ai_1_name"]).grid(row=2, column=0, padx=5,
                                                                                         pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.al1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
+        ttk.Entry(player_frame, textvariable=self.ai_1_name_var, width=15).grid(row=2, column=1, padx=5, pady=5,
                                                                               sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("al1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
+                  command=lambda: self.upload_image("ai_1"), style="Custom.TButton").grid(row=2, column=2, padx=5,
                                                                                          pady=5, sticky="w")
 
-        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["al2_name"]).grid(row=3, column=0, padx=5,
+        ttk.Label(player_frame, text=LANGUAGES[self.settings.language]["ai_1_name"]).grid(row=3, column=0, padx=5,
                                                                                         pady=5, sticky=anchor)
-        ttk.Entry(player_frame, textvariable=self.al2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
+        ttk.Entry(player_frame, textvariable=self.ai_2_name_var, width=15).grid(row=3, column=1, padx=5, pady=5,
                                                                               sticky="w")
         ttk.Button(player_frame, text=LANGUAGES[self.settings.language]["upload_image"],
-                  command=lambda: self.upload_image("al2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
+                  command=lambda: self.upload_image("ai_2"), style="Custom.TButton").grid(row=3, column=2, padx=5,
                                                                                          pady=5, sticky="w")
 
     def setup_design_tab(self, notebook):
@@ -1080,8 +1080,8 @@ class SettingsWindow(BaseWindow):
             self.ai_pause_var.set(self.temp_settings.ai_pause_time)
             self.player_1_name_var.set(self.temp_settings.player_1_name)
             self.player_2_name_var.set(self.temp_settings.player_2_name)
-            self.al1_name_var.set(self.temp_settings.al1_name)
-            self.al2_name_var.set(self.temp_settings.al2_name)
+            self.ai_1_name_var.set(self.temp_settings.ai_1_name)
+            self.ai_2_name_var.set(self.temp_settings.ai_2_name)
             self.player_1_color_var.set(rgb_to_hex(self.temp_settings.player_1_color))
             self.player_2_color_var.set(rgb_to_hex(self.temp_settings.player_2_color))
             self.board_color_1_var.set(rgb_to_hex(self.temp_settings.board_color_1))
@@ -1092,7 +1092,7 @@ class SettingsWindow(BaseWindow):
             for key in ["player_1_piece", "player_1_king", "player_2_piece", "player_2_king"]:
                 self.entries[key].set(getattr(self.temp_settings, f"{key}_image"))
 
-            for key in ["player_1_image", "player_2_image", "al1_image", "al2_image"]:
+            for key in ["player_1_image", "player_2_image", "ai_1_image", "ai_2_image"]:
                 self.entries[key].set(getattr(self.temp_settings, key))
 
             ability_mapping = {1: "very_weak", 3: "weak", 5: "medium", 7: "strong", 9: "very_strong"}
@@ -1155,8 +1155,8 @@ class SettingsWindow(BaseWindow):
                 "ai_pause_time": pause_time,
                 "player_1_name": self.validate_string_input(self.player_1_name_var.get()),
                 "player_2_name": self.validate_string_input(self.player_2_name_var.get()),
-                "al1_name": self.validate_string_input(self.al1_name_var.get()),
-                "al2_name": self.validate_string_input(self.al2_name_var.get()),
+                "ai_1_name": self.validate_string_input(self.ai_1_name_var.get()),
+                "ai_2_name": self.validate_string_input(self.ai_2_name_var.get()),
                 "player_1_color": self.player_1_color_var.get(),
                 "player_2_color": self.player_2_color_var.get(),
                 "board_color_1": self.board_color_1_var.get(),
@@ -1165,8 +1165,8 @@ class SettingsWindow(BaseWindow):
                                                   tk.StringVar(value=self.temp_settings.player_1_image)).get(),
                 "player_2_image": self.entries.get("player_2_image",
                                                   tk.StringVar(value=self.temp_settings.player_2_image)).get(),
-                "al1_image": self.entries.get("al1_image", tk.StringVar(value=self.temp_settings.al1_image)).get(),
-                "al2_image": self.entries.get("al2_image", tk.StringVar(value=self.temp_settings.al2_image)).get(),
+                "ai_1_image": self.entries.get("ai_1_image", tk.StringVar(value=self.temp_settings.ai_1_image)).get(),
+                "ai_2_image": self.entries.get("ai_2_image", tk.StringVar(value=self.temp_settings.ai_2_image)).get(),
                 "player_1_piece_image": self.entries.get("player_1_piece", tk.StringVar(
                     value=self.temp_settings.player_1_piece_image)).get(),
                 "player_1_king_image": self.entries.get("player_1_king", tk.StringVar(
@@ -1240,8 +1240,8 @@ class SettingsWindow(BaseWindow):
         self.ai_pause_var.set(self.temp_settings.ai_pause_time)
         self.player_1_name_var.set(self.temp_settings.player_1_name)
         self.player_2_name_var.set(self.temp_settings.player_2_name)
-        self.al1_name_var.set(self.temp_settings.al1_name)
-        self.al2_name_var.set(self.temp_settings.al2_name)
+        self.ai_1_name_var.set(self.temp_settings.ai_1_name)
+        self.ai_2_name_var.set(self.temp_settings.ai_2_name)
         self.player_1_color_var.set(rgb_to_hex(self.temp_settings.player_1_color))
         self.player_2_color_var.set(rgb_to_hex(self.temp_settings.player_2_color))
         self.board_color_1_var.set(rgb_to_hex(self.temp_settings.board_color_1))
